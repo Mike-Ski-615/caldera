@@ -9,7 +9,12 @@ import com.caldera.shaders.render.shadow.DirectionalShadowPipelines;
 import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.render.shadow.SodiumShadowTerrainRenderer;
 import com.caldera.shaders.render.shadow.SodiumTerrainShadowPipelines;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.systems.RenderSystem;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.world.level.Level;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -110,5 +115,46 @@ public final class MinecraftShaderHost implements ShaderHost {
 	@Override
 	public String rendererFailure() {
 		return NativePackRuntime.failure();
+	}
+
+	// ---------------------------------------------------------------- frame 侧能力
+	// 与上面同样：每个方法体都是"不改变任何语义地转发"。这里的每一个都是原件
+	// NativePackRuntime 里某个方法体内部那一行的原样提取。
+
+	@Override
+	public RenderTarget mainRenderTarget() {
+		return Minecraft.getInstance().gameRenderer.mainRenderTarget();
+	}
+
+	@Override
+	public ClientLevel level() {
+		return Minecraft.getInstance().level;
+	}
+
+	@Override
+	public boolean inOverworld() {
+		ClientLevel level = Minecraft.getInstance().level;
+		return level != null && level.dimension().equals(Level.OVERWORLD);
+	}
+
+	@Override
+	public void submitCommands() {
+		RenderSystem.getDevice().createCommandEncoder().submit();
+	}
+
+	@Override
+	public void queueFence(Runnable task) {
+		RenderSystem.queueFencedTask(task);
+	}
+
+	@Override
+	public void invalidateCompiledGeometry() {
+		Minecraft client = Minecraft.getInstance();
+		client.levelRenderer.invalidateCompiledGeometry(client.level, client.options, client.gameRenderer.mainCamera(), client.getBlockColors());
+	}
+
+	@Override
+	public boolean developmentEnvironment() {
+		return FabricLoader.getInstance().isDevelopmentEnvironment();
 	}
 }

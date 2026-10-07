@@ -2,8 +2,10 @@ package com.caldera.shaders;
 
 import com.mojang.logging.LogUtils;
 import com.caldera.shaders.graph.GraphGpuSmoke;
+import com.caldera.shaders.graph.NativePackRuntime;
 import com.caldera.shaders.runtime.BackendStatus;
 import com.caldera.shaders.runtime.MinecraftShaderHost;
+import com.caldera.shaders.runtime.ShaderHost;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
@@ -20,7 +22,11 @@ public final class CalderaShadersClient implements ClientModInitializer {
    private boolean backendNoticeShown;
 
    public void onInitializeClient() {
-      ShaderRuntime.install(new MinecraftShaderHost());
+      ShaderHost host = new MinecraftShaderHost();
+      ShaderRuntime.install(host);
+      // 帧生命周期与渲染器生命周期的实例。它装的是**同一个** host：
+      // 由这里装而不是由 host 自己装，否则就成了 host → 静态门面 → instance → host 的构造期循环。
+      NativePackRuntime.install(host);
       ShaderRuntime.init();
       ClientLifecycleEvents.CLIENT_STARTED.register(client -> ShaderRuntime.bootstrap());
       ClientLifecycleEvents.CLIENT_STOPPING.register((ClientLifecycleEvents.ClientStopping)(client) -> ShaderRuntime.close());

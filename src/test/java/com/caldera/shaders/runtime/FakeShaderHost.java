@@ -2,6 +2,8 @@ package com.caldera.shaders.runtime;
 
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import net.minecraft.client.multiplayer.ClientLevel;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -16,36 +18,40 @@ import java.util.concurrent.Executor;
  * 这样就能在不启动 Minecraft、不碰 GPU 的前提下断言整个生命周期的时序。
  * <p>
  * {@link #clientThread()} 直接同步执行，让重载回调在测试里变成确定性的。
+ * <p>
+ * 公开可见，因为 {@code NativePackRuntime} 的测试也用它：那个类的测试在
+ * {@code com.caldera.shaders.graph} 包，跨不过包私有。这也正是它存在的意义——
+ * 一个"游戏能力"的替身，供所有需要它的测试共用，而不是每个包各写一个。
  */
-final class FakeShaderHost implements ShaderHost {
+public final class FakeShaderHost implements ShaderHost {
 
 	/** 记录所有被调用的事件名，用于断言顺序。 */
-	final List<String> events = new ArrayList<>();
+	public final List<String> events = new ArrayList<>();
 	/** 每一次 saveConfig 收到的对象。 */
-	final List<ShaderConfig> savedConfigs = new ArrayList<>();
+	public final List<ShaderConfig> savedConfigs = new ArrayList<>();
 	/** 每一次 prepareRenderer 收到的设置。 */
-	final List<ShaderConfig> preparedConfigs = new ArrayList<>();
+	public final List<ShaderConfig> preparedConfigs = new ArrayList<>();
 	/** 每一次 reloResources 返回的 future，由测试决定何时完成。 */
-	final List<CompletableFuture<Void>> reloads = new ArrayList<>();
+	public final List<CompletableFuture<Void>> reloads = new ArrayList<>();
 	/** 每一次 prepareRenderer 返回的句柄。 */
-	final List<RecordingRenderer> handles = new ArrayList<>();
+	public final List<RecordingRenderer> handles = new ArrayList<>();
 
 	/** loadConfig() 返回的内容。 */
-	ShaderConfig stored = new ShaderConfig();
+	public ShaderConfig stored = new ShaderConfig();
 	/** scanPacks() 返回的受支持条目。 */
-	List<ShaderPackScanner.AvailableShaderPack> scanned = List.of();
+	public List<ShaderPackScanner.AvailableShaderPack> scanned = List.of();
 	/** scanPacks() 返回的无法识别条目。 */
-	List<ShaderPackScanner.UnsupportedShaderPack> unsupported = List.of();
+	public List<ShaderPackScanner.UnsupportedShaderPack> unsupported = List.of();
 	/** vulkanActive() 的返回值。 */
-	boolean vulkan;
+	public boolean vulkan;
 	/** detachLegacyPack() 的返回值。 */
-	boolean legacyDetached;
+	public boolean legacyDetached;
 	/** 非 null 时 prepareRenderer 抛出它。 */
-	Exception prepareFailure;
+	public Exception prepareFailure;
 	/** rendererFailure() 的返回值。 */
-	String rendererFailure;
+	public String rendererFailure;
 	/** prepareRenderer 是否被调用过。 */
-	boolean prepareCalled;
+	public boolean prepareCalled;
 
 	int saveOptionsCount;
 	int geometryRebuildCount;
@@ -145,6 +151,58 @@ final class FakeShaderHost implements ShaderHost {
 	@Override
 	public String rendererFailure() {
 		return this.rendererFailure;
+	}
+
+	// ---------------------------------------------------------------- frame 侧能力
+
+	/** mainRenderTarget() 的返回值；默认 null，即"游戏还没建立渲染目标"。 */
+	public RenderTarget mainRenderTarget;
+	/** level() 的返回值；默认 null，即"不在世界里"。 */
+	public ClientLevel level;
+	/** inOverworld() 的返回值。故意与 level 解耦：模块从不解读 level，只问这一句。 */
+	public boolean inOverworld;
+	/** developmentEnvironment() 的返回值。默认 false，于是 smoke 开关一律不生效。 */
+	public boolean developmentEnvironment;
+	/** 每一次 submitCommands() 与 queueFence()。 */
+	public final List<String> gpuCommands = new ArrayList<>();
+
+	@Override
+	public RenderTarget mainRenderTarget() {
+		return this.mainRenderTarget;
+	}
+
+	@Override
+	public ClientLevel level() {
+		return this.level;
+	}
+
+	@Override
+	public boolean inOverworld() {
+		return this.inOverworld;
+	}
+
+	@Override
+	public void submitCommands() {
+		this.events.add("submitCommands");
+		this.gpuCommands.add("submit");
+	}
+
+	@Override
+	public void queueFence(Runnable task) {
+		this.events.add("queueFence");
+		this.gpuCommands.add("fence");
+		// 同步跑，和 clientThread() 一样：让测试不必等到"栅栏之后"。
+		task.run();
+	}
+
+	@Override
+	public void invalidateCompiledGeometry() {
+		this.events.add("invalidateCompiledGeometry");
+	}
+
+	@Override
+	public boolean developmentEnvironment() {
+		return this.developmentEnvironment;
 	}
 
 	/** 记录被激活的包 id 与被关闭的次数。 */

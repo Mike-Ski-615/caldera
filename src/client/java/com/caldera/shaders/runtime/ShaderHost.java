@@ -2,6 +2,8 @@ package com.caldera.shaders.runtime;
 
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import net.minecraft.client.multiplayer.ClientLevel;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -90,6 +92,45 @@ public interface ShaderHost {
 	 * 是为了让这个状态能在测试里被摆布。
 	 */
 	String rendererFailure();
+
+	/**
+	 * 主渲染目标；游戏尚未建立时可能为 {@code null}。
+	 * <p>
+	 * 这是一个**不透明转交**：{@code NativePackRuntime} 只把它原样交给
+	 * {@code GraphRenderer}，自己不读它的任何属性。所以测试里的内存实现直接返回
+	 * {@code null} 就能覆盖"没有渲染器"的那些路径，不需要造一个真的 {@code RenderTarget}。
+	 */
+	RenderTarget mainRenderTarget();
+
+	/** 当前客户端世界；不在世界里时为 {@code null}。同样是不透明转交。 */
+	ClientLevel level();
+
+	/**
+	 * 玩家是否在主世界。
+	 * <p>
+	 * 这是 frame 侧唯一一个**被模块自己解读**的世界属性，所以它单独成一条，
+	 * 而不是让模块去解读 {@link #level()}：否则为了这一个 boolean，
+	 * 测试就得构造一个真的 {@code ClientLevel}。{@link #level()} 为 {@code null} 时必须返回
+	 * {@code false}。
+	 */
+	boolean inOverworld();
+
+	/** 提交一次命令缓冲。几何重建之前必须先把已排队的命令交出去。 */
+	void submitCommands();
+
+	/** 把 GPU 资源的释放排到栅栏之后：当前帧可能还在用它们。 */
+	void queueFence(Runnable task);
+
+	/**
+	 * 标脏已编译的地形几何。
+	 * <p>
+	 * 只在 {@link #level()} 非 null 时才允许调用——那个判断由调用方做，
+	 * 这是原件的行为，不是可以顺手合并的守卫。
+	 */
+	void invalidateCompiledGeometry();
+
+	/** 是否跑在开发环境里。只有开发环境才启用那些 smoke 开关。 */
+	boolean developmentEnvironment();
 
 	/**
 	 * 一份已经准备好、可以被激活或被丢弃的渲染器。
