@@ -20,8 +20,8 @@ public abstract class SubmitNodeStorageMixin {
       cancellable = true
    )
    private void caldera$disableVanillaBlobShadows(PoseStack poseStack, float shadowRadius, List<EntityRenderState.ShadowPiece> shadowPieces, CallbackInfo ci) {
-      // 两问相与，顺序与原先那个 ShadowService.enabled() 一致：先质量，后帧就绪。
-      if (!ShaderRuntime.resourceReloading() && NativePackRuntime.shadowQuality() > 0 && NativePackRuntime.shadowFrameReady()) {
+      // "该不该投射阴影"是门面上一个有名字的判断（质量与帧就绪的合取），这里不再自己拼。
+      if (!ShaderRuntime.resourceReloading() && NativePackRuntime.shadowsEnabled()) {
          ci.cancel();
       }
 

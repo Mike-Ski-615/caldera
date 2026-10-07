@@ -32,18 +32,14 @@ public final class CompositionRoot {
     * 把游戏能力装进每一个需要它的模块。可以重复调用，后一次会替换前一次装上的 host。
     * <p>
     * <b>顺序是行为的一部分：</b>{@code NativePackRuntime} 必须在阴影渲染器之前装上，因为后者要拿到
-    * 前者的两条查询。它们是门面上的静态成员，所以这里把方法引用（以及一条收紧过的判断）当
-    * {@code BooleanSupplier} 交出去——{@code render.shadow} 因此不必 import {@code graph}
-    * 就能拿到"这个包会不会动阴影的投射者"与"这个包有没有开阴影"。
-    * <p>
-    * 注意后者的形状：{@code animatedCasters} 是门面方法的引用，而"质量大于零"这条阈值在这里就收紧成
-    * 一个是非题。这不是随意的不对称——{@code shadowQuality > 0} 是 shadow 侧对包声明的解释，
-    * 照原样透传一个整数会让那个模块继续解释包那边的概念。
+    * 前者的两条查询。它们是门面上的静态成员，所以这里把方法引用当 {@code BooleanSupplier} 交出去
+    * ——{@code render.shadow} 因此不必 import {@code graph} 就能拿到"这个包会不会动阴影的投射者"
+    * 与"阴影此刻开着没有"。
     */
    public static void install(ShaderHost host) {
       ShaderRuntime.install(host);
       NativePackRuntime.install(host);
       DirectionalShadowRenderer.install(host, NativePackRuntime::animatedShadowCasters,
-            () -> NativePackRuntime.shadowQuality() > 0);
+            NativePackRuntime::shadowsEnabled);
    }
 }

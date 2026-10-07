@@ -263,6 +263,12 @@ final class InstalledPackRuntime implements PackRuntime {
    }
 
    @Override
+   public boolean shadowsEnabled() {
+      // 顺序与原先各调用点写的一致：先质量、后帧就绪。
+      return this.frame.shadowQuality() > 0 && this.frame.shadowFrameReady();
+   }
+
+   @Override
    public HeldLightShadowRenderer heldShadows() {
       return this.frame.heldShadows();
    }

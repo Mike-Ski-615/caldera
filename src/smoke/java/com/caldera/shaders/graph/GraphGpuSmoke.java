@@ -299,9 +299,9 @@ public final class GraphGpuSmoke {
       // 却一个级联都没有，就说明阴影那条路整条没跑起来——而它的唯一表现是画面里没有影子，
       // 截图门禁的均值比较抓不到它。
       //
-      // 判定用的是 NativePackRuntime.shadowQuality() 而不是 ShadowService.enabled()：后者还要求
+      // 判定用的是 NativePackRuntime.shadowQuality() 而不是门面上的 shadowsEnabled()：后者还要求
       // shadowFrameReady()，而那是 **frame scope 内**才成立的（sceneActive）。这里在 END_CLIENT_TICK 上，
-      // 本帧的 scene 已经关掉，于是 enabled() 恒为 false——拿它当门闸等于这条断言永不执行。
+      // 本帧的 scene 已经关掉，于是那个判断恒为 false——拿它当门闸等于这条断言永不执行。
       if (NativePackRuntime.shadowQuality() > 0 && cascades <= 0) {
          LogUtils.getLogger().error("CALDERA_WORLD_SMOKE_FAIL shadows are enabled but the cascade planner produced no cascades (activeCascadeCount={})", cascades);
          client.stop();

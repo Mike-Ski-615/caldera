@@ -206,12 +206,14 @@ class SceneFrameTest {
 		SceneFrame frame = frameWithAbsentRenderer();
 		CameraRenderState camera = beginScene(frame);
 
-		assertTrue(frame.shadowFrameReady(), "这一条故意不看有没有渲染器：ShadowService 拿它与质量相与");
+		assertTrue(frame.shadowFrameReady(), "这一条故意不看有没有渲染器——所以它在这里答 true");
 		assertFalse(frame.usesNativeTransparency());
 		assertNull(frame.weatherView());
 		assertNull(frame.heldShadows());
 		assertNull(frame.materials());
 		assertEquals(0, frame.shadowQuality());
+		// 这一对就是"该不该投射阴影"那两半：帧就绪为真、质量为 0，所以合取为假。
+		// 它说明为什么那个判断必须由门面（两侧都够得到）来答，而不能由 shadow 侧自己答。
 		assertEquals(128, frame.shadowDistance());
 		assertEquals(0L, frame.renderedFrames());
 		assertEquals(0L, frame.terrainCaptures());

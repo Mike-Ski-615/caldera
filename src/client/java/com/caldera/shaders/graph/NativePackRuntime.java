@@ -179,6 +179,15 @@ public final class NativePackRuntime {
       return current.shadowFrameReady();
    }
 
+   /**
+    * 现在该不该投射阴影：这个包开了阴影，而且这一帧的场景就绪。
+    * <p>
+    * 那个合取原先散在五个调用点上各拼一遍，这里把它收回一处——见 {@link PackRuntime#shadowsEnabled()}。
+    */
+   public static boolean shadowsEnabled() {
+      return current.shadowsEnabled();
+   }
+
    public static HeldLightShadowRenderer heldShadows() {
       return current.heldShadows();
    }

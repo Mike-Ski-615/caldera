@@ -159,6 +159,12 @@ final class NotInstalledPackRuntime implements PackRuntime {
       return false;
    }
 
+   /** {@code false}：没有生效的包，也就没有"该不该投射阴影"这回事（与质量为零同一个答案）。 */
+   @Override
+   public boolean shadowsEnabled() {
+      return false;
+   }
+
    /**
     * 这些查询与 {@link AbsentRenderer}（"运行时装好了、没有包生效"那一份）**答案相同**，
     * 所以直接委托它——"缺席时答什么"在渲染器那道缝上已经有一份可读、可测的定义，这里不再抄第二遍。

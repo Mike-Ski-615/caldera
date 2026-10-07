@@ -118,6 +118,21 @@ interface PackRuntime {
 
    boolean shadowFrameReady();
 
+   /**
+    * 现在该不该投射阴影：这个包开了阴影，**而且**这一帧的场景就绪。
+    * <p>
+    * 它是 {@link #shadowQuality()} 与 {@link #shadowFrameReady()} 的合取，单独成一个名字是因为
+    * 那个合取原先散在五个调用点上各拼一遍（三个 mixin、一个装配点，还有门禁的一处注释解释它为什么
+    * 不能用）。它本来就是一个问题——"现在该不该投射阴影"——只是被拆到了调用点去拼。
+    * <p>
+    * <b>为什么放在门面上而不是 shadow 侧：</b>合取的两半拥有者不同。质量是**这个包声明的**（静态事实），
+    * "这一帧 scene 就绪吗"是**帧状态**（只有 {@code SceneFrame} 答得出来）。门面两侧都够得到，
+    * 所以它是这个问题唯一能问的地方；shadow 侧若自己答，就得回头读帧状态，那是它的反向依赖。
+    * <p>
+    * 顺序与原先各调用点写的一致：先质量、后帧就绪，靠短路求值。
+    */
+   boolean shadowsEnabled();
+
    HeldLightShadowRenderer heldShadows();
 
    boolean usesNativeTransparency();

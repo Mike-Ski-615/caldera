@@ -85,21 +85,22 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
     * <p>
     * 它由 {@code CompositionRoot} 从 {@code NativePackRuntime} 注入，而不是这里回头去读那个门面——
     * 那一条是 {@code render.shadow → graph} 的反向依赖。没装之前是 {@code false}，
-    * 与"没有包生效"时的答案一致。生命周期与 {@link #host} 相同，理由与守卫缺口也相同。
+    * 与"没有包生效"时的答案一致。
     */
    private static BooleanSupplier animatedCasters = () -> false;
    /**
-    * 这个包声明的阴影质量档位是否大于零。
+    * "现在该不该投射阴影"：包开着阴影**且**这一帧的场景就绪（门面上的 {@code shadowsEnabled()}）。
     * <p>
-    * 它是**包状态**，与 {@link #animatedCasters} 同类、同样的注入理由；形状不同是有意的：
-    * 它是一个在装配点求值的 {@code BooleanSupplier}（{@code () -> NativePackRuntime.shadowQuality() > 0}），
-    * 而 {@code animatedCasters} 是门面方法的引用。区别在于"质量大于零"这条阈值属于 shadow 侧的判断，
-    * 所以由装配点把它收紧成一个是非题；照原样透传"质量是多少"会让这个模块继续解释包那边的概念，
-    * 而那正是这次要收掉的那条反向依赖。没装之前是 {@code false}，与"没有包生效"时的答案一致。
+    * 它是**包状态与帧状态的合取**，与 {@link #animatedCasters} 同类、同样的注入理由。两者都是门面方法的
+    * 引用——这里不需要在装配点收紧成别的形状，因为那条判断本来就已经是一个是非题，它属于门面
+    * （合取的两半拥有者不同：质量是包声明的，帧就绪只有 {@code SceneFrame} 答得出来）。
+    * <p>
+    * 它唯一的读取者是 {@link #retireUnused()}——"用户把阴影关掉之后退掉 GPU 资源"。没装之前是
+    * {@code false}，而那正是"资源不该留着"的答案。
     */
-   private static BooleanSupplier shadowQualityEnabled = () -> false;
+   private static BooleanSupplier shadowsEnabled = () -> false;
    /**
-    * 本帧生效的质量档位。由 {@link #prepare} 每帧从 {@link #shadowQualityEnabled} 与恒定档位
+    * 本帧生效的质量档位。由 {@link #prepare} 每帧从 {@link #shadowsEnabled} 与恒定档位
     * {@link #enabledQuality} 定出来。
     * <p>
     * 它是本帧状态（计划与 {@code uploadShadowData} 都读它），所以放在实例上；初值是 {@code OFF}，
@@ -151,10 +152,10 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
     * 必须在 {@code NativePackRuntime.install()} **之后**调用：{@code animatedCasters} 是那个门面
     * 的一条查询。
     */
-   public static void install(ShaderHost shaderHost, BooleanSupplier animatedCasters, BooleanSupplier shadowQualityEnabled) {
+   public static void install(ShaderHost shaderHost, BooleanSupplier animatedCasters, BooleanSupplier shadowsEnabled) {
       host = shaderHost;
       DirectionalShadowRenderer.animatedCasters = animatedCasters;
-      DirectionalShadowRenderer.shadowQualityEnabled = shadowQualityEnabled;
+      DirectionalShadowRenderer.shadowsEnabled = shadowsEnabled;
       instance = new DirectionalShadowRenderer();
    }
 
@@ -210,7 +211,7 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
     */
    @Override
    public void prepare(LevelRenderState levelRenderState, float packDistance) {
-      boolean shadowsOn = shadowQualityEnabled.getAsBoolean();
+      boolean shadowsOn = shadowsEnabled.getAsBoolean();
       // 本帧档位：包只在"质量大于零"这一个恒定档位上（见 enabledQuality）。
       this.activeQuality = shadowsOn ? enabledQuality : ShaderQualityPreset.OFF;
       // 日月方向与阴影质量无关：这一帧只要有天空状态就刷新，且必须在下面那道质量判定**之前**。
@@ -524,7 +525,7 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
     */
    public static void retireUnused() {
       DirectionalShadowRenderer live = instance;
-      if (live != null && !shadowQualityEnabled.getAsBoolean()) {
+      if (live != null && !shadowsEnabled.getAsBoolean()) {
          RenderSystem.queueFencedTask(live::destroyTargets);
       }
    }

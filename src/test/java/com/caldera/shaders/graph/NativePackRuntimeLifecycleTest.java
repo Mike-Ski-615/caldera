@@ -62,6 +62,7 @@ class NativePackRuntimeLifecycleTest {
       assertNull(NativePackRuntime.weatherView());
 
       assertFalse(NativePackRuntime.shadowFrameReady());
+      assertFalse(NativePackRuntime.shadowsEnabled(), "没装东西就不该投射阴影（合取的另一半是质量 0）");
       assertFalse(NativePackRuntime.usesNativeTransparency());
       assertFalse(NativePackRuntime.animatedShadowCasters());
       assertFalse(NativePackRuntime.replacesEnvironment(true));

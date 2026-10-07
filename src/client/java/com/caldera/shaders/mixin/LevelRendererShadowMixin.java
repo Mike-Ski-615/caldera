@@ -116,7 +116,7 @@ public abstract class LevelRendererShadowMixin {
 
       this.caldera$nearShadowSubmitStorage.getSubmitsPerOrder().clear();
       this.caldera$hasNearShadowEntitySubmits = false;
-      if (!ShaderRuntime.resourceReloading() && NativePackRuntime.shadowQuality() > 0 && NativePackRuntime.shadowFrameReady()) {
+      if (!ShaderRuntime.resourceReloading() && NativePackRuntime.shadowsEnabled()) {
          DirectionalShadowPipelines.ensureInitialized();
          DirectionalShadowRenderer shadows = DirectionalShadowRenderer.get();
          this.caldera$shadowSubmitFilter = new DirectionalShadowSubmitFilter(this.caldera$nearShadowSubmitStorage, (double)Math.max(24.0F, shadows.entityCascadeEnd(0)));
@@ -138,7 +138,7 @@ public abstract class LevelRendererShadowMixin {
       at = {@At("HEAD")}
    )
    private void caldera$addDirectionalShadowPass(FrameGraphBuilder builder, FeatureRenderDispatcher.PreparedFrame preparedFrame, GpuBufferSlice viewPositions, ChunkSectionsToRender chunkSectionsToRender, boolean consistentDepthRequired, CallbackInfo ci) {
-      if (!ShaderRuntime.resourceReloading() && (NativePackRuntime.shadowQuality() > 0 && NativePackRuntime.shadowFrameReady() || NativePackRuntime.heldShadows() != null) && chunkSectionsToRender != null) {
+      if (!ShaderRuntime.resourceReloading() && (NativePackRuntime.shadowsEnabled() || NativePackRuntime.heldShadows() != null) && chunkSectionsToRender != null) {
          FramePass pass = builder.addPass("caldera:directional_shadow_maps");
          pass.disableCulling();
          pass.executes(() -> this.caldera$runDirectionalShadowPass());
@@ -175,7 +175,7 @@ public abstract class LevelRendererShadowMixin {
       // 实体提交是这一帧现算的（只有本类持有那个 SubmitNodeStorage），另两条都是门面查询。
       ShadowPassFacts facts = new ShadowPassFacts(
             this.caldera$hasNearShadowEntitySubmits,
-            NativePackRuntime.shadowQuality() > 0 && NativePackRuntime.shadowFrameReady(),
+            NativePackRuntime.shadowsEnabled(),
             this.caldera$activeHeldLight() != null);
       DirectionalShadowPass.execute(shadows, facts, new DirectionalShadowPass.Frame(
             // 输入
