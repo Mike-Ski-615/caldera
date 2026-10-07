@@ -6,6 +6,7 @@ import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.renderpearl.api.GpuFormat;
 import net.minecraft.client.multiplayer.ClientLevel;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -47,8 +48,21 @@ public interface ShaderHost {
 	/** 写一个包的选项。 */
 	void savePackOptions(String packId, Map<String, Double> values) throws java.io.IOException;
 
-	/** 确保光影包目录存在。 */
+	/** 确保光影包目录存在。这是**命令**：查一个路径不该顺手建目录，所以它与下面那条分开。 */
 	void ensurePackDirectory();
+
+	/**
+	 * 光影包目录在哪。
+	 * <p>
+	 * 这是一个**纯查询**：不建目录、不读盘，只回答"包放在哪里"。迁移前这个位置有四条绕过端口的路径
+	 * ——{@code InstalledPackRuntime} 拼包文件路径、{@code NativePackRuntime.selected} 判断某个 id
+	 * 是不是原生包、{@code ShaderPackScanner} 自己扫、以及界面"打开包文件夹"——于是"包在哪"这条
+	 * 知识散在四个模块里，而**外部包在测试里根本打不开**（只有 classpath 上的内置包可达）。
+	 * <p>
+	 * 目录名（{@code shaders}）与它的基目录是**适配器**该知道的事：生产实现取游戏的运行目录，
+	 * 测试实现可以指向一个临时目录。
+	 */
+	Path packsRoot();
 
 	/**
 	 * 扫描光影包目录。

@@ -109,6 +109,19 @@ public final class FakeShaderHost implements ShaderHost {
 		this.events.add("ensurePackDirectory");
 	}
 
+	/**
+	 * packsRoot() 的返回值；默认一个不会存在的路径。
+	 * <p>
+	 * 测试把它指向临时目录，于是"外部包"第一次可以被真的打开——迁移前这条路是
+	 * {@code ShaderPackScanner} 自己拿 {@code FabricLoader}，谁都指不动。
+	 */
+	public Path packsRoot = Path.of("/nowhere", "shaders");
+
+	@Override
+	public Path packsRoot() {
+		return this.packsRoot;
+	}
+
 	@Override
 	public ShaderPackScanner.ScanResult scanPacks() {
 		this.events.add("scanPacks");

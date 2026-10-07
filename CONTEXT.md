@@ -7,7 +7,8 @@
 
 - **光影包（shader pack）** — 用户放进光影包目录的一份资源。**原生包**是其中能解析出 `caldera.json`
   的那些；旧格式的包由 `LegacyPackMigration` 在扫描时摘掉。包"算不算数"由 `ShaderPackScanner`
-  与 `NativePackRuntime.isNative` 共同决定。
+  与 `NativePackRuntime.isNative` 共同决定。**包目录在哪**由端口回答（`ShaderHost.packsRoot()`）：
+  扫描器、运行时门面与界面都只认路径，不认 `FabricLoader`，也认不得"shaders"这个名字。
 - **包图（pack graph）** — 一份 `caldera.json` 解析出来的完整描述：资源、pass、材质、场景程序、
   选项定义、显存预算。模块是 `PackGraph`，深而窄：入口只有 `parse(String)`。
 - **包文件（pack files）** — 一个包在磁盘/压缩包里的字节。模块是 `PackFiles`。

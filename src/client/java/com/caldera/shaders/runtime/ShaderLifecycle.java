@@ -2,6 +2,7 @@ package com.caldera.shaders.runtime;
 
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -34,6 +35,14 @@ interface ShaderLifecycle {
 
    /** 最近一次扫描的**完整**结果（含被忽略的条目）；界面读它，所以是缓存而不是重新读盘。 */
    ShaderPackScanner.ScanResult scanResult();
+
+   /**
+    * 光影包目录在哪。
+    * <p>
+    * 界面"打开包文件夹"要它；没有第二个读者。未安装时是 {@code null}——那意味着"还没有装好，
+    * 没有路径可开"，与 {@link #rendererFailure()} 的 {@code null} 同一风格。
+    */
+   Path packsRoot();
 
    /** 光影是否开着：开关 + 后端。 */
    boolean shadersEnabled();

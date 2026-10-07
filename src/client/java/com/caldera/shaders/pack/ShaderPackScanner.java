@@ -13,33 +13,35 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Stream;
-import net.fabricmc.loader.api.FabricLoader;
 
+/**
+ * 扫光影包目录：把每个条目分成"能用"与"被忽略"，并给出归一化用的扫描结果。
+ * <p>
+ * <b>它不认识"包目录在哪"。</b>路径一律由调用方给——生产侧那一头是
+ * {@link com.caldera.shaders.runtime.ShaderHost#packsRoot()} 的实现。迁移前这里有一个
+ * {@code shaderPackDirectory()} 直接拿 {@code FabricLoader.getInstance().getGameDir()}，
+ * 于是"包在哪"这件事绕过了端口：{@code InstalledPackRuntime}、{@code NativePackRuntime.selected}
+ * 和屏幕各拿一次。现在这个模块是纯的（只认路径），{@code scanDirectory(Path)} 与
+ * {@code NativePackRuntime.isNative(Path)} 一直如此，也是测试唯一能驱动的地方。
+ */
 public final class ShaderPackScanner {
-   private static final String SHADER_DIRECTORY_NAME = "shaders";
 
    private ShaderPackScanner() {
    }
 
-   public static Path shaderPackDirectory() {
-      return FabricLoader.getInstance().getGameDir().resolve("shaders");
-   }
-
-   public static void ensureShaderPackDirectory() {
+   /** 确保包目录存在。这是**命令**，与"目录在哪"分开：查一个路径不该顺手建目录。 */
+   public static void ensureDirectory(Path root) {
       try {
-         Files.createDirectories(shaderPackDirectory());
+         Files.createDirectories(root);
       } catch (IOException exception) {
          throw new IllegalStateException("Failed to create Caldera shader pack directory", exception);
       }
    }
 
-   public static List<AvailableShaderPack> listAvailablePacks() {
-      return scan().supportedPacks();
-   }
-
-   public static ScanResult scan() {
-      ensureShaderPackDirectory();
-      return scanDirectory(shaderPackDirectory());
+   /** 建好目录再扫一遍。 */
+   public static ScanResult scan(Path root) {
+      ensureDirectory(root);
+      return scanDirectory(root);
    }
 
    static ScanResult scanDirectory(Path directory) {

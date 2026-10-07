@@ -2,6 +2,7 @@ package com.caldera.shaders.runtime;
 
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -56,6 +57,12 @@ final class NotInstalledShaderLifecycle implements ShaderLifecycle {
    @Override
    public ShaderPackScanner.ScanResult scanResult() {
       return EMPTY_SCAN;
+   }
+
+   /** {@code null}：还没装好，没有"包在哪"这个答案。界面据此把"打开文件夹"当成空操作。 */
+   @Override
+   public Path packsRoot() {
+      return null;
    }
 
    @Override

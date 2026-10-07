@@ -5,7 +5,6 @@ import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.caldera.shaders.config.ShaderConfig;
-import com.caldera.shaders.pack.ShaderPackScanner;
 import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
 import com.caldera.shaders.render.shadow.ShadowPassScope;
 import com.caldera.shaders.runtime.ShaderHost;
@@ -69,7 +68,7 @@ final class InstalledPackRuntime implements PackRuntime {
          return null;
       }
 
-      if (!NativePackRuntime.selected(config)) {
+      if (!NativePackRuntime.selected(config, this.host.packsRoot())) {
          throw new IOException("This pack is not a native Caldera shader pack. Select Caldera Realistic or a pack with caldera.json.");
       }
 
@@ -281,8 +280,8 @@ final class InstalledPackRuntime implements PackRuntime {
 
    // ------------------------------------------------------------- pack 文件
 
-   private static PackFiles packFiles(String id) throws IOException {
-      return "__builtin__".equals(id) ? PackFiles.bundled() : PackFiles.read(ShaderPackScanner.shaderPackDirectory().resolve(id));
+   private PackFiles packFiles(String id) throws IOException {
+      return "__builtin__".equals(id) ? PackFiles.bundled() : PackFiles.read(this.host.packsRoot().resolve(id));
    }
 
    /**

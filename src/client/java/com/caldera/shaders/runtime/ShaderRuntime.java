@@ -2,6 +2,7 @@ package com.caldera.shaders.runtime;
 
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -64,6 +65,11 @@ public final class ShaderRuntime {
    /** 最近一次扫描的完整结果（含被忽略的条目）；界面读它，所以是缓存而不是重新读盘。 */
    public static ShaderPackScanner.ScanResult scanResult() {
       return current.scanResult();
+   }
+
+   /** 光影包目录在哪；未安装时为 {@code null}。界面"打开包文件夹"要它。 */
+   public static Path packsRoot() {
+      return current.packsRoot();
    }
 
    public static boolean shadersEnabled() {

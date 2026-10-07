@@ -14,6 +14,7 @@ import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -532,7 +533,14 @@ public final class ShadersScreen extends Screen {
 	}
 
 	private void openShaderFolder() {
-		Blaze3D.openPath(ShaderPackScanner.shaderPackDirectory());
+		Path root = ShaderRuntime.packsRoot();
+		// 还没装好就没有路径可开（未安装适配器答 null）。这不是错误，只是这一下点了什么也不做——
+		// 比去开一个自己猜出来的路径正确。
+		if (root == null) {
+			return;
+		}
+
+		Blaze3D.openPath(root);
 		this.statusError = false;
 		this.status = Component.translatable("caldera.screen.status.folder_opened");
 	}

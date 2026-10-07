@@ -15,6 +15,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.level.Level;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -58,12 +59,23 @@ public final class MinecraftShaderHost implements ShaderHost {
 
 	@Override
 	public void ensurePackDirectory() {
-		ShaderPackScanner.ensureShaderPackDirectory();
+		ShaderPackScanner.ensureDirectory(this.packsRoot());
+	}
+
+	/**
+	 * 包目录就是游戏运行目录下的 {@code shaders}。
+	 * <p>
+	 * "它叫什么、挂在哪个基目录下"是**这个适配器**该知道的事，而不是 {@code ShaderPackScanner}
+	 * 或 {@code InstalledPackRuntime} 该知道的——那两个模块现在只认路径。
+	 */
+	@Override
+	public Path packsRoot() {
+		return FabricLoader.getInstance().getGameDir().resolve("shaders");
 	}
 
 	@Override
 	public ShaderPackScanner.ScanResult scanPacks() {
-		return ShaderPackScanner.scan();
+		return ShaderPackScanner.scan(this.packsRoot());
 	}
 
 	@Override

@@ -5,7 +5,6 @@ import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.caldera.shaders.config.ShaderConfig;
-import com.caldera.shaders.pack.ShaderPackScanner;
 import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
 import com.caldera.shaders.runtime.ShaderHost;
 import java.io.IOException;
@@ -114,14 +113,17 @@ public final class NativePackRuntime {
       return current.failure();
    }
 
-   /** 这个包 id 指向的目录/压缩包确实是一个原生包。纯文件系统判断，与实例无关。 */
-   public static boolean selected(ShaderConfig config) {
+   /**
+    * 这个包 id 指向的目录/压缩包确实是一个原生包。纯文件系统判断——只认路径，不认实例，
+    * 所以包目录是**参数**：它来自端口的 {@code packsRoot()}，而这里不自己去问"包在哪"。
+    */
+   public static boolean selected(ShaderConfig config, Path packsRoot) {
       return "__builtin__".equals(config.selectedPackId())
             || config.selectedPackId() != null
                   && PackFiles.safe(config.selectedPackId())
                   && !config.selectedPackId().contains("/")
                   && !"__builtin__".equals(config.selectedPackId())
-                  && isNative(ShaderPackScanner.shaderPackDirectory().resolve(config.selectedPackId()));
+                  && isNative(packsRoot.resolve(config.selectedPackId()));
    }
 
    /** 这个路径是否是一个原生光影包（目录或压缩包里恰好有一份 caldera.json）。纯文件系统判断。 */

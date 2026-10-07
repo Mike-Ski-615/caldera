@@ -4,9 +4,11 @@ import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.graph.NativePackRuntime;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -64,5 +66,20 @@ class CompositionRootTest {
 
 		assertTrue(first.events.isEmpty(), "换过之后旧的 host 不该再被读到");
 		assertEquals(List.of("loadConfig", "ensurePackDirectory", "scanPacks"), second.events);
+	}
+
+	@Test
+	void thePackDirectoryIsAnsweredFromTheInstalledHost() {
+		FakeShaderHost host = new FakeShaderHost();
+		Path root = Path.of("somewhere", "shaders");
+		host.packsRoot = root;
+
+		CompositionRoot.install(host);
+
+		assertEquals(root, ShaderRuntime.packsRoot(), "界面打开包文件夹用的就是这个答案");
+
+		ShaderRuntime.uninstall();
+
+		assertNull(ShaderRuntime.packsRoot(), "还没装好时没有路径可给——界面据此把它当成空操作");
 	}
 }

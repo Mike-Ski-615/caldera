@@ -3,6 +3,7 @@ package com.caldera.shaders.runtime;
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
 import com.mojang.logging.LogUtils;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -57,6 +58,11 @@ final class InstalledShaderLifecycle implements ShaderLifecycle {
    @Override
    public ShaderPackScanner.ScanResult scanResult() {
       return this.scan;
+   }
+
+   @Override
+   public Path packsRoot() {
+      return this.host.packsRoot();
    }
 
    @Override
