@@ -95,15 +95,14 @@ final class InstalledShaderLifecycle implements ShaderLifecycle {
    /**
     * 重新读盘，并把设置与磁盘对齐。
     * <p>
-    * 选中的包若已从磁盘上消失，就回退到内置包并让它真正生效——这正是「刷新」按钮要解决的问题，
-    * 否则界面会挂着一个永远应用不成的选择。没有变化时返回的 future 立即完成。
+    * 它**总是**把归一化后的选择写回磁盘——那是启动时的语义，即使没有变化也写一次。
+    * 原来的行为如此，这里不加判断也不记日志：启动时回退到内置包是**正常路径**，不是需要用户知道的事件
+    * （换包时才有 {@link #realign} 的那条日志）。
     */
    private void loadState() {
       this.config = this.host.loadConfig();
       this.host.ensurePackDirectory();
-      this.scan = this.host.scanPacks();
-      // "选中的包必须还在，否则回退内置"只剩这一个判断了——归一化本身在 ScanResult 上。
-      String resolved = this.scan.resolveSelection(this.config.selectedPackId());
+      String resolved = this.rescan();
       if (!resolved.equals(this.config.selectedPackId())) {
          this.config = this.config.withSelection(this.config.enabled(), resolved);
          this.host.saveConfig(this.config);
@@ -194,13 +193,27 @@ final class InstalledShaderLifecycle implements ShaderLifecycle {
    }
 
    private CompletableFuture<Void> realign() {
-      this.scan = this.host.scanPacks();
-      String resolved = this.scan.resolveSelection(this.config.selectedPackId());
+      String resolved = this.rescan();
       if (resolved.equals(this.config.selectedPackId())) {
          return CompletableFuture.completedFuture(null);
       }
 
       LOGGER.info("Caldera shader pack {} is gone; falling back to the built-in pack", this.config.selectedPackId());
       return this.apply(this.config.withSelection(this.config.enabled(), resolved), true);
+   }
+
+   /**
+    * 重新扫一遍包目录，并把选中的包 id 归一化成"要么它还在，要么内置包"。**返回归一化后的 id。**
+    * <p>
+    * <b>这是启动与刷新共用的那一段。</b>两者原先各写一遍"扫盘 → {@code resolveSelection}"，
+    * 差别只在"变了之后做什么"：启动静默写盘、刷新记日志并让它生效。现在那个差别留在各自的调用方里
+    * （它们是两条不同的政策，不是同一个判断的两种写法），而这前两步只写一遍。
+    * <p>
+    * 归一化本身仍在 {@link ShaderPackScanner.ScanResult#resolveSelection}（它才知道有哪些包）；
+    * 这里负责的是"重新读盘"与"把结果落到 {@link #scan}"。
+    */
+   private String rescan() {
+      this.scan = this.host.scanPacks();
+      return this.scan.resolveSelection(this.config.selectedPackId());
    }
 }

@@ -1,6 +1,7 @@
 package com.caldera.shaders.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.caldera.shaders.graph.NativePackRuntime;
 import com.caldera.shaders.render.shadow.ShadowService;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import java.util.List;
@@ -19,7 +20,8 @@ public abstract class SubmitNodeStorageMixin {
       cancellable = true
    )
    private void caldera$disableVanillaBlobShadows(PoseStack poseStack, float shadowRadius, List<EntityRenderState.ShadowPiece> shadowPieces, CallbackInfo ci) {
-      if (!ShaderRuntime.resourceReloading() && ShadowService.enabled()) {
+      // 两问相与，顺序与原先那个 ShadowService.enabled() 一致：先质量，后帧就绪。
+      if (!ShaderRuntime.resourceReloading() && NativePackRuntime.shadowQuality() > 0 && NativePackRuntime.shadowFrameReady()) {
          ci.cancel();
       }
 

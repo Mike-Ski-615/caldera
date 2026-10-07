@@ -5,11 +5,13 @@ import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.caldera.shaders.config.ShaderConfig;
+import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
 import com.caldera.shaders.render.shadow.ShadowPassScope;
 import com.caldera.shaders.runtime.ShaderHost;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,7 +30,8 @@ import org.joml.Vector4fc;
  * 于是"实例存在"这件事从"字段不为 null"变成了"门面手上是哪一个适配器"。
  * <p>
  * 场景帧那 28 个方法都是一行转发：门闸与它护着的动作已经收在 {@link SceneFrame} 里（候选 3），这里
- * 不再重新判断任何条件。
+ * 不再重新判断任何条件。渲染器的 null 也只是在这里被翻成 {@link AbsentRenderer#INSTANCE} 一次，
+ * 再往里就没有 null 了——见 {@link #activateRenderer}。
  */
 final class InstalledPackRuntime implements PackRuntime {
 
@@ -46,7 +49,8 @@ final class InstalledPackRuntime implements PackRuntime {
 
    InstalledPackRuntime(ShaderHost host) {
       this.host = host;
-      this.frame = new SceneFrame(host, ShaderRuntime::config, ShaderRuntime::resourceReloading, ShadowPassScope::active);
+      this.frame = new SceneFrame(host, ShaderRuntime::config, ShaderRuntime::resourceReloading, ShadowPassScope::active,
+            () -> DirectionalShadowRenderer.get().resourcesReady());
    }
 
    // ------------------------------------------------------------- 渲染器生命周期
@@ -68,13 +72,32 @@ final class InstalledPackRuntime implements PackRuntime {
          return null;
       }
 
-      if (!NativePackRuntime.selected(config, this.host.packsRoot())) {
+      if (!selected(config, this.host.packsRoot())) {
          throw new IOException("This pack is not a native Caldera shader pack. Select Caldera Realistic or a pack with caldera.json.");
       }
 
       PackFiles files = packFiles(config.selectedPackId());
       PackGraph graph = loadOptions(PackGraph.parse(files.text("caldera.json")), config.selectedPackId());
       return new GraphRenderer(graph, files, this.host.mainRenderTarget());
+   }
+
+   /**
+    * 设置里选中的那个包 id 现在成立吗。
+    * <p>
+    * 门面那道 {@code selected} 已经撤掉并入这里：它唯一的使用者就是 {@link #prepare}，而"算不算原生包"
+    * 那一问回到了 {@link PackFiles#isNative}（它拥有包根规则）。所以这里只剩"这个 id 合法吗、而且它落在
+    * 给定的包目录里吗"。
+    * <p>
+    * 静态且包级可见，因为它**不读实例上的任何东西**：两个参数就是它的全部输入。保住这一点是有用的
+    * ——{@code ExternalPackTest} 直接钉的就是"判断用的是传进来的根""内置包不碰磁盘"这两条。
+    */
+   static boolean selected(ShaderConfig config, Path packsRoot) {
+      return "__builtin__".equals(config.selectedPackId())
+            || config.selectedPackId() != null
+                  && PackFiles.safe(config.selectedPackId())
+                  && !config.selectedPackId().contains("/")
+                  && !"__builtin__".equals(config.selectedPackId())
+                  && PackFiles.isNative(packsRoot.resolve(config.selectedPackId()));
    }
 
    @Override
@@ -115,13 +138,29 @@ final class InstalledPackRuntime implements PackRuntime {
     * 拆除（摘下来、清 {@code failure}/{@code sceneFailure}、把旧的排队关掉）都在
     * {@link SceneFrame#attach}／{@link SceneFrame#detach} 里；这里只剩政策：换完之后要不要重建几何。
     * 那一问看的是**新旧两侧**的材质表——旧的那份失效了、或者新的那份需要材质编码，都要重建。
+    * <p>
+    * {@code next} 允许为 {@code null}（门面那条公开契约如此：{@code activate(null, id)} 是拆除），
+    * 而这里是**整个仓库里唯一**把它翻成 {@link AbsentRenderer#INSTANCE} 的地方。再往里，
+    * {@link SceneFrame} 手上没有 null 这个概念。
     */
    private void activateRenderer(GraphRenderer next, String id) {
-      GraphRenderer old = this.frame.detach(SceneFrame.Disposal.QUEUED);
-      this.frame.attach(next, id);
-      if (old != null && old.materials().enabled() || next != null && next.materials().enabled()) {
+      ActiveRenderer old = this.frame.detach(SceneFrame.Disposal.QUEUED);
+      ActiveRenderer installed = next == null ? AbsentRenderer.INSTANCE : new InstalledRenderer(next);
+      this.frame.attach(installed, id);
+      if (rebuildsGeometry(old) || rebuildsGeometry(installed)) {
          this.frame.requestGeometryRebuild();
       }
+   }
+
+   /**
+    * 这一份材质表需不需要地形几何按材质编码重建。
+    * <p>
+    * {@link ActiveRenderer#materials()} 允许为 null 是既有契约（{@link GraphRenderer} 的构造器后半段
+    * 才给它赋值），所以守卫保留；它只是从"没有渲染器"变成了"渲染器或它的材质表还不存在"。
+    */
+   private static boolean rebuildsGeometry(ActiveRenderer renderer) {
+      MaterialTable materials = renderer.materials();
+      return materials != null && materials.enabled();
    }
 
    @Override

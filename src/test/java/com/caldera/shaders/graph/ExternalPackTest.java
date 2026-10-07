@@ -120,19 +120,22 @@ class ExternalPackTest {
 	}
 
 	// ------------------------------------------------------------ 纯判断也认这根目录
+	//
+	// selected 已经并入 InstalledPackRuntime（它唯一的使用者是 prepare），但它是**静态且包级可见**的：
+	// 两个参数就是它的全部输入，所以这两条用例仍然能直接钉它，不必造一个实例。
 
 	@Test
 	void selectedChecksTheRootItIsGiven(@TempDir Path packsRoot, @TempDir Path elsewhere) throws IOException {
 		writeExternalPack(packsRoot);
 		ShaderConfig config = new ShaderConfig(true, PACK_ID);
 
-		assertTrue(NativePackRuntime.selected(config, packsRoot));
-		assertFalse(NativePackRuntime.selected(config, elsewhere), "判断用的是传进来的根，不是某个全局目录");
+		assertTrue(InstalledPackRuntime.selected(config, packsRoot));
+		assertFalse(InstalledPackRuntime.selected(config, elsewhere), "判断用的是传进来的根，不是某个全局目录");
 	}
 
 	@Test
 	void theBuiltinPackIsSelectedWithoutTouchingTheDisk(@TempDir Path nowhere) {
-		assertTrue(NativePackRuntime.selected(new ShaderConfig(true, ShaderConfig.BUILTIN_PACK_ID), nowhere));
+		assertTrue(InstalledPackRuntime.selected(new ShaderConfig(true, ShaderConfig.BUILTIN_PACK_ID), nowhere));
 	}
 
 	// ------------------------------------------------------------ 缺席时仍然拒绝

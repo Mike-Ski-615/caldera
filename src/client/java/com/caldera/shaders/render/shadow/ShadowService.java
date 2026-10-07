@@ -6,54 +6,25 @@ import com.mojang.renderpearl.api.pipeline.BindGroupLayout;
 import com.mojang.renderpearl.api.pipeline.UniformType;
 import com.mojang.renderpearl.api.textures.FilterMode;
 import com.mojang.renderpearl.api.textures.GpuSampler;
-import com.caldera.shaders.config.ShaderQualityPreset;
-import com.caldera.shaders.graph.NativePackRuntime;
 
+/**
+ * 阴影那几张图**在 GPU 侧的名字与绑定**：{@code CalderaShadowData} 与 {@code CalderaShadowMap0..3}
+ * 以及两张实体图。
+ * <p>
+ * <b>它现在只剩这一件事。</b>原先它还转着一组查询——{@code enabled()}、{@code quality()}、
+ * {@code distance()}、{@code memoryBytes()}、{@code planStats()}——而那些查询的拥有者不是它：
+ * 质量与距离是**包声明的**（graph 侧的事实），统计是**计划模块的**，显存预算是 **sizing 算术的**。
+ * 一个模块同时是"查询转发表"和"绑定名表"，读的人就分不清哪一半该改哪里。现在它们各归其主：
+ * <ul>
+ *    <li>档位与距离 → {@link DirectionalShadowRenderer}（它每帧拿到这两个输入）；</li>
+ *    <li>显存预算 → {@link CascadePlanner#shadowMemoryBytes(int)}（sizing 算术本来就在那里）；</li>
+ *    <li>计划统计 → {@link DirectionalShadowRenderer#planStats()}（门禁直接问它）。</li>
+ * </ul>
+ * 留下 {@link #layout} 与 {@link #bindTerrain} 的理由很具体：那几个 uniform 名字是**阴影自己的知识**，
+ * graph 侧的渲染器看不懂也不该懂。
+ */
 public final class ShadowService {
    private ShadowService() {
-   }
-
-   public static boolean enabled() {
-      return NativePackRuntime.shadowQuality() > 0 && NativePackRuntime.shadowFrameReady();
-   }
-
-   public static ShaderQualityPreset quality() {
-      return NativePackRuntime.shadowQuality() > 0 ? ShaderQualityPreset.values()[NativePackRuntime.shadowQuality()] : ShaderQualityPreset.OFF;
-   }
-
-   public static float distance() {
-      return NativePackRuntime.shadowQuality() > 0 ? (float)NativePackRuntime.shadowDistance() : 384.0F;
-   }
-
-   public static long memoryBytes(int quality) {
-      if (quality == 0) {
-         return 0L;
-      } else {
-         long bytes = 560L;
-         ShaderQualityPreset preset = ShaderQualityPreset.values()[quality];
-         int[] sizes = CascadePlanner.targetSizes(preset, Integer.MAX_VALUE);
-
-         for(int size : sizes) {
-            bytes += (long)size * (long)size * 5L;
-         }
-
-         for(int i = 0; i < 2; ++i) {
-            int size = CascadePlanner.entityTargetSize(preset, sizes, i);
-            bytes += (long)size * (long)size * 5L;
-         }
-
-         return bytes;
-      }
-   }
-
-   /**
-    * 级联计划的只读统计：每个级联各自被要求重画了多少次，以及级联布局一共动了多少次。
-    * <p>
-    * 存在的意义是给门禁留一个**记录**用的出口：级联调度错了不会抛异常，只会安静地少画影子
-    * 或每帧重画，这两种状态在画面上不好认、在计数上很好认。它不参与任何判定。
-    */
-   public static CascadePlanStats planStats() {
-      return DirectionalShadowRenderer.get().planStats();
    }
 
    public static void layout(BindGroupLayout.Builder layout) {

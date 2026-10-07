@@ -70,11 +70,46 @@ class PackFilesTest {
 		assertEquals("x", files.text("shaders/a.fsh"));
 	}
 
+	/**
+	 * 「一层容器目录」就是一层：{@code nested/caldera.json} 与 {@code Container/caldera.json} 等价，
+	 * 两者都算清单。所以"根上一份 + 一层一份"是**两个包根**，两边都必须拒绝——包根不能靠猜。
+	 * <p>
+	 * 「恰好一份」这条要求 {@link PackFiles#isNative} 与 {@code read} 都成立，这也正是本次要保住的东西：
+	 * 同一个包，"算不算原生包"与"能不能读进来"不许是两个答案。
+	 */
+	@Test
+	void aPackWithTwoManifestsAtRootAndOneLevelIsRejectedOnBothPaths(@TempDir Path dir) throws IOException {
+		Files.writeString(dir.resolve("caldera.json"), "{}", StandardCharsets.UTF_8);
+		Files.createDirectories(dir.resolve("nested"));
+		Files.writeString(dir.resolve("nested/caldera.json"), "{\"deep\":true}", StandardCharsets.UTF_8);
+
+		IOException failure = assertThrows(IOException.class, () -> PackFiles.read(dir));
+
+		assertEquals("Native pack needs exactly one caldera.json", failure.getMessage());
+		assertFalse(PackFiles.isNative(dir), "两个包根同样不算原生包");
+	}
+
+	/**
+	 * 深**两**层的那一份不算清单，是包里的普通文件；此时根上那份就是唯一包根。
+	 */
+	@Test
+	void readTreatsAManifestTwoLevelsDeepAsAnOrdinaryFile(@TempDir Path dir) throws IOException {
+		Files.writeString(dir.resolve("caldera.json"), "{}", StandardCharsets.UTF_8);
+		Files.createDirectories(dir.resolve("Container/nested"));
+		Files.writeString(dir.resolve("Container/nested/caldera.json"), "{\"deep\":true}", StandardCharsets.UTF_8);
+
+		PackFiles files = PackFiles.read(dir);
+
+		assertEquals("{}", files.text("caldera.json"), "取的是根上那一份");
+		assertEquals("{\"deep\":true}", files.text("Container/nested/caldera.json"), "深两层的那份是普通文件");
+		assertTrue(PackFiles.isNative(dir), "读得进来与算原生包必须是同一个答案");
+	}
+
 	@Test
 	void readRejectsAPackWithoutExactlyOneManifest(@TempDir Path dir) throws IOException {
 		Files.writeString(dir.resolve("caldera.json"), "{}", StandardCharsets.UTF_8);
-		Files.createDirectories(dir.resolve("nested"));
-		Files.writeString(dir.resolve("nested/caldera.json"), "{}", StandardCharsets.UTF_8);
+		Files.createDirectories(dir.resolve("Container"));
+		Files.writeString(dir.resolve("Container/caldera.json"), "{}", StandardCharsets.UTF_8);
 
 		IOException failure = assertThrows(IOException.class, () -> PackFiles.read(dir));
 

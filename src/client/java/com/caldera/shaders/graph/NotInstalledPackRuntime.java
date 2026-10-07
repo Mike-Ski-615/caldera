@@ -149,16 +149,33 @@ final class NotInstalledPackRuntime implements PackRuntime {
 
    // ------------------------------------------------------------- 查询
 
+   /**
+    * {@code false}，**无条件**——这与 {@link SceneFrame#shadowFrameReady()} 那条"故意不看有没有渲染器"
+    * 的契约不同：那一边在场景开着时可能答 {@code true}，因为"运行时装好了、只是没有包生效"与"整份运行时
+    * 还没装"不是同一件事。所以这一问不能委托给 {@link AbsentRenderer}。
+    */
    @Override
    public boolean shadowFrameReady() {
       return false;
    }
 
+   /**
+    * 这些查询与 {@link AbsentRenderer}（"运行时装好了、没有包生效"那一份）**答案相同**，
+    * 所以直接委托它——"缺席时答什么"在渲染器那道缝上已经有一份可读、可测的定义，这里不再抄第二遍。
+    * <p>
+    * 不委托的是那几处**故意不同**的：{@link #shadowFrameReady()}（见上）、{@link #render}
+    * （未安装时必须在触碰参数之前就答，见它的注释）与那六个入口（未安装时要抛）。
+    */
    @Override
    public HeldLightShadowRenderer heldShadows() {
-      return null;
+      return AbsentRenderer.INSTANCE.heldShadows();
    }
 
+   /**
+    * 这一问与 {@link #replacesEnvironment} 都**不能**委托给 {@link AbsentRenderer}：它们是
+    * {@link SceneFrame} 的**帧状态**门闸（"有渲染器且不在重载中" / "有渲染器且场景就绪"），
+    * 而不是渲染器对自己的回答——渲染器那一侧没有这两个方法。
+    */
    @Override
    public boolean usesNativeTransparency() {
       return false;
@@ -173,6 +190,7 @@ final class NotInstalledPackRuntime implements PackRuntime {
       return false;
    }
 
+   /** 见 {@link #usesNativeTransparency()} 上那条注释：这也是帧状态门闸，不在渲染器那道缝上。 */
    @Override
    public boolean replacesEnvironment(boolean clouds) {
       return false;
@@ -180,36 +198,36 @@ final class NotInstalledPackRuntime implements PackRuntime {
 
    @Override
    public int shadowQuality() {
-      return 0;
+      return AbsentRenderer.INSTANCE.shadowQuality();
    }
 
    @Override
    public int shadowDistance() {
-      return 128;
+      return AbsentRenderer.INSTANCE.shadowDistance();
    }
 
    @Override
    public boolean animatedShadowCasters() {
-      return false;
+      return AbsentRenderer.INSTANCE.animatedShadowCasters();
    }
 
    @Override
    public MaterialTable materials() {
-      return null;
+      return AbsentRenderer.INSTANCE.materials();
    }
 
    @Override
    public long terrainCaptures() {
-      return 0L;
+      return AbsentRenderer.INSTANCE.terrainCaptures();
    }
 
    @Override
    public long renderedFrames() {
-      return 0L;
+      return AbsentRenderer.INSTANCE.renderedFrames();
    }
 
    @Override
    public long sceneReplacementCount() {
-      return 0L;
+      return AbsentRenderer.INSTANCE.sceneReplacementCount();
    }
 }

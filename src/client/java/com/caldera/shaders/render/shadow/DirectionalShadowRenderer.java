@@ -8,11 +8,11 @@ import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.renderpearl.api.commands.CommandEncoder;
 import com.caldera.shaders.config.ShaderQualityPreset;
-import com.caldera.shaders.graph.NativePackRuntime;
 import com.caldera.shaders.runtime.ReloadableResources;
 import com.caldera.shaders.runtime.ShaderHost;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.function.BooleanSupplier;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.state.level.LevelRenderState;
 import net.minecraft.client.renderer.state.level.SkyRenderState;
@@ -38,23 +38,74 @@ import org.joml.Vector4f;
 public final class DirectionalShadowRenderer implements DirectionalShadowPass.Device {
    private static final int CASCADE_UBO_BYTES = 144;
    private static final int SHADOW_DATA_BYTES = 416;
-   private static final Vector4f CLEAR = new Vector4f(1.0F, 1.0F, 1.0F, 1.0F);
-   private static DirectionalShadowRenderer instance;
    /**
-    * 游戏能力的来源，与 {@code NativePackRuntime}/{@code ShaderRuntime} 同一个 host 实例，
-    * 由 {@code CalderaShadersClient} 在客户端初始化时装上。
+    * "阴影开着"时用的档位。
     * <p>
-    * 这一条端口是本次改动加的：计划要用"有效渲染距离"和"设备纹理边长上限"，
-    * 而它们原先分别来自 {@code Minecraft.getInstance().options} 与
-    * {@code RenderSystem.getDevice().getDeviceInfo().limits()}。计划本身不许再去够这两处。
+    * 这是一个**断言**，不是配置：包只声明"质量大于零"这一件事（质量的 0..4 档位事实上恒为 2），
+    * 所以没有第二条信息能说明该用哪一档。迁移前这个值来自 {@code ShadowQualityPreset.values()[2]}
+    * ——也就是同一件事的另一种写法（当时的 {@code ShadowService.quality()} 把包声明的质量当天花板用，
+    * 而实数只会是 2）。写成常量是为了把"事实如此"摆在明处；它同时消掉了那个未经上界检查的
+    * {@code values()[quality]} 索引。
     */
-   private static ShaderHost host;
+   private static final ShaderQualityPreset enabledQuality = ShaderQualityPreset.MEDIUM;
+   private static final Vector4f CLEAR = new Vector4f(1.0F, 1.0F, 1.0F, 1.0F);
+   /**
+    * 唯一实例。**由 {@link #install} 建出来，此后不再被置空**（{@link #close()} 与
+    * {@link #retireUnused()} 拆的是 GPU 资源，不是这个壳）；只有测试用的 {@link #uninstall()}
+    * 会把它清掉。见 {@link #get()} 与 {@link #install}。
+    */
+   private static DirectionalShadowRenderer instance;
    /**
     * 这几个 RenderTarget 跨资源重载存活（{@link #close()} 只拆纹理，不动计划状态），
     * 所以释放动作在这里登记一次。见 {@link ReloadableResources}。
     */
    private static final ReloadableResources.Owner RELOADABLE =
          ReloadableResources.owner("directional shadow renderer", DirectionalShadowRenderer::close);
+   /**
+    * 游戏能力的来源。**必须是静态的，不能是实例字段**——这一条是被一次真实崩溃教会的。
+    * <p>
+    * 它的生命周期是**进程级**，而这个类的实例不是：{@link #close()} 与 {@link #retireUnused()}
+    * 都会把 {@code instance} 置空（资源重载时 {@code close()} 一定会跑），此后 {@link #get()} 建出来的
+    * 是一个新实例。宿主若挂在实例上，那一刻就丢了，而 {@link #prepare} 会以
+    * {@code IllegalStateException} 在渲染帧里崩掉——实测就是这么崩的。
+    * <p>
+    * 这个端口本身是必须的：计划要用"有效渲染距离"与"设备纹理边长上限"，而它们原先分别来自
+    * {@code Minecraft.getInstance().options} 与 {@code RenderSystem.getDevice().getDeviceInfo().limits()}。
+    * 计划自己不许再去够这两处。
+    * <p>
+    * <b>已知的验证缺口：</b>这条"必须是静态的"没有任何测试守卫得住——能观测到它的那条路要质量档位
+    * 大于零，而那需要一个真的渲染器；直接断言字段则恒真（见
+    * {@code DirectionalShadowRendererTeardownTest} 里那段说明）。守卫只有这里的文字与一次客户端内
+    * 资源重载的手工验收。
+    */
+   private static ShaderHost host;
+   /**
+    * 这个包是否声明了会动阴影的投射者（植被风）。生命周期与 {@link #host} 相同，理由也相同：
+    * 它是**包状态**，不属于某一次 GPU 资源分配。
+    * <p>
+    * 它由 {@code CompositionRoot} 从 {@code NativePackRuntime} 注入，而不是这里回头去读那个门面——
+    * 那一条是 {@code render.shadow → graph} 的反向依赖。没装之前是 {@code false}，
+    * 与"没有包生效"时的答案一致。生命周期与 {@link #host} 相同，理由与守卫缺口也相同。
+    */
+   private static BooleanSupplier animatedCasters = () -> false;
+   /**
+    * 这个包声明的阴影质量档位是否大于零。
+    * <p>
+    * 它是**包状态**，与 {@link #animatedCasters} 同类、同样的注入理由；形状不同是有意的：
+    * 它是一个在装配点求值的 {@code BooleanSupplier}（{@code () -> NativePackRuntime.shadowQuality() > 0}），
+    * 而 {@code animatedCasters} 是门面方法的引用。区别在于"质量大于零"这条阈值属于 shadow 侧的判断，
+    * 所以由装配点把它收紧成一个是非题；照原样透传"质量是多少"会让这个模块继续解释包那边的概念，
+    * 而那正是这次要收掉的那条反向依赖。没装之前是 {@code false}，与"没有包生效"时的答案一致。
+    */
+   private static BooleanSupplier shadowQualityEnabled = () -> false;
+   /**
+    * 本帧生效的质量档位。由 {@link #prepare} 每帧从 {@link #shadowQualityEnabled} 与恒定档位
+    * {@link #enabledQuality} 定出来。
+    * <p>
+    * 它是本帧状态（计划与 {@code uploadShadowData} 都读它），所以放在实例上；初值是 {@code OFF}，
+    * 与"还没跑过 {@code prepare}"时的答案一致。
+    */
+   private ShaderQualityPreset activeQuality = ShaderQualityPreset.OFF;
    private final RenderTarget[] targets = new RenderTarget[4];
    private final RenderTarget[] entityTargets = new RenderTarget[4];
    private final int[] targetSizes = new int[4];
@@ -79,32 +130,60 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
    private double cameraY;
    private double cameraZ;
 
-   private DirectionalShadowRenderer() {
+   /**
+    * 包级可见而不是 private：{@link #get()} 的那个实例由 {@link #install} 建，但**测试也需要一个真能
+    * 分配资源的实例**来验证拆除语义——而 {@code install} 在用例之间会被 {@link #uninstall()} 清掉，
+    * 它的实例不适合当拆除测试的对象。构造器本身没有副作用（只初始化容器与 planner），
+    * 所以放给同包没有风险。生产代码里唯一的构造点是 {@link #install}。
+    */
+   DirectionalShadowRenderer() {
    }
 
    /**
-    * 安装游戏能力端口。必须在第一次 {@link #prepare} 之前调用，由 {@code CalderaShadersClient} 与
-    * {@code NativePackRuntime.install()} 并排调用——装的是**同一个** host 实例。
+    * 装上游戏能力端口与包状态，必须在第一次 {@link #prepare} 之前调用。
+    * <p>
+    * 它写的是**静态**字段，因为那两样东西的生命周期是进程级；渲染器实例只建一次，依赖与它同寿
+    * （见 {@link #host} 的注释——把它们挂到"会被拆掉重建"的实例上，曾经让资源重载之后的下一帧直接崩掉）。
+    * <p>
+    * 它同时**创建那个唯一的实例**：装配之后 {@link #get()} 手上永远有东西，不再需要"第一次问的时候
+    * 建出来"这件事（见 {@link #get()}）。因此它也是"这一个进程里有没有阴影渲染器"的那一次决定。
+    * <p>
+    * 必须在 {@code NativePackRuntime.install()} **之后**调用：{@code animatedCasters} 是那个门面
+    * 的一条查询。
     */
-   public static void install(ShaderHost shaderHost) {
+   public static void install(ShaderHost shaderHost, BooleanSupplier animatedCasters, BooleanSupplier shadowQualityEnabled) {
       host = shaderHost;
+      DirectionalShadowRenderer.animatedCasters = animatedCasters;
+      DirectionalShadowRenderer.shadowQualityEnabled = shadowQualityEnabled;
+      instance = new DirectionalShadowRenderer();
    }
 
-   private static ShaderHost requireHost() {
-      ShaderHost installed = host;
-      if (installed == null) {
-         throw new IllegalStateException("Caldera shadow renderer has no installed ShaderHost: DirectionalShadowRenderer.install() must run during client initialization");
-      }
-
-      return installed;
-   }
-
+   /**
+    * 这一个进程里唯一的方向光阴影渲染器。
+    * <p>
+    * <b>它不再懒建。</b>{@link #install} 在装配时就把它建出来，而 {@link #close()} 与
+    * {@link #retireUnused()} **不再把它置空**——它们拆的是 GPU 资源，不是这个壳。
+    * 于是"关掉阴影再打开"之间，实例与它的计划状态都是同一个（计划状态由
+    * {@code CascadePlanner.suspend()} 与 {@code ensureResources} 的"资源变过没有"兜住，
+    * 不需要靠重建实例来重置）。
+    * <p>
+    * 代价是它**可能为 {@code null}**：只能出现在 {@code install} 之前，也就是客户端初始化之前，
+    * 而那条路径上根本不会有东西来问它。这是与 {@code SceneFrame} 同一套做法——"装好之前"
+    * 是一个真实但预期不会用到的状态，靠装配顺序排除，而不是靠懒建掩盖。
+    */
    public static DirectionalShadowRenderer get() {
-      if (instance == null) {
-         instance = new DirectionalShadowRenderer();
-      }
-
       return instance;
+   }
+
+   /**
+    * 丢掉当前实例，回到"装配之前"。
+    * <p>
+    * 包级可见，供测试隔离：实例只建一次，所以不这么做的话，一个用例装过之后下一个用例就再也看不到
+    * 那个 null 状态了。与 {@code NativePackRuntime.uninstall()} 是同一个手法——ADR-0003 用它让
+    * "未安装时答什么"这条契约可验证。
+    */
+   static void uninstall() {
+      instance = null;
    }
 
    @Override
@@ -130,8 +209,10 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
     * 计划才允许跑。反过来会让级联布局在资源重建的那一帧与纹理实际尺寸对不上。
     */
    @Override
-   public void prepare(LevelRenderState levelRenderState) {
-      ShaderQualityPreset quality = ShadowService.quality();
+   public void prepare(LevelRenderState levelRenderState, float packDistance) {
+      boolean shadowsOn = shadowQualityEnabled.getAsBoolean();
+      // 本帧档位：包只在"质量大于零"这一个恒定档位上（见 enabledQuality）。
+      this.activeQuality = shadowsOn ? enabledQuality : ShaderQualityPreset.OFF;
       // 日月方向与阴影质量无关：这一帧只要有天空状态就刷新，且必须在下面那道质量判定**之前**。
       // 原因是访问器（sunDirection/moonDirection）承诺的是"本帧的天体状态"，而 prepare() 是本类的
       // 帧入口——把它留在 plan() 里的 skyPresent 分支，就会在阴影未启用的帧上停在上一帧的值。
@@ -139,8 +220,13 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
          this.planner.updateCelestialDirections(levelRenderState.skyRenderState.sunAngle, levelRenderState.skyRenderState.moonAngle);
       }
 
-      if (quality.enabled() && levelRenderState != null && levelRenderState.cameraRenderState != null) {
-         ShaderHost installed = requireHost();
+      if (shadowsOn && levelRenderState != null && levelRenderState.cameraRenderState != null) {
+         ShaderHost installed = host;
+         if (installed == null) {
+            throw new IllegalStateException("Caldera shadow renderer has no installed ShaderHost: DirectionalShadowRenderer.install() must run during client initialization");
+         }
+
+         ShaderQualityPreset quality = this.activeQuality;
          int maxShadowSize = Math.min(installed.maxTextureSizeForFormat(GpuFormat.R8_UNORM), installed.maxTextureSizeForFormat(GpuFormat.D32_FLOAT));
          boolean resourcesChanged = this.ensureResources(CascadePlanner.targetSizes(quality, maxShadowSize), quality, maxShadowSize);
          CameraRenderState camera = levelRenderState.cameraRenderState;
@@ -166,9 +252,9 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
                sky == null ? 0.0F : sky.sunAngle,
                sky == null ? 0.0F : sky.moonAngle,
                installed.renderDistance(),
-               ShadowService.distance(),
-               ShadowService.enabled(),
-               NativePackRuntime.animatedShadowCasters(),
+               packDistance,
+               true,
+               animatedCasters.getAsBoolean(),
                maxShadowSize,
                CascadePlanner.terrainRevision(),
                resourcesChanged);
@@ -182,7 +268,7 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
       return this.schedule.activeCascadeCount();
    }
 
-   /** 计划模块的只读统计；{@link ShadowService} 把它转给门禁记录用。 */
+   /** 计划模块的只读统计；门禁记录用。 */
    public CascadePlanStats planStats() {
       return this.planner.stats();
    }
@@ -294,21 +380,29 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
 
       Vector3fc light = this.schedule.lightDirection();
       putVec4(light.x(), light.y(), light.z(), 0.0F, this.shadowUpload);
-      float var10000;
-      switch (ShadowService.quality()) {
-         case LOW -> var10000 = 1.0F;
-         case MEDIUM -> var10000 = 4.0F;
-         case HIGH -> var10000 = 9.0F;
-         case ULTRA -> var10000 = 16.0F;
-         case OFF -> var10000 = 1.0F;
-         default -> throw new MatchException((String)null, (Throwable)null);
-      }
-
-      float filterSamples = var10000;
-      putVec4(1.0F * this.schedule.celestialShadowFade(), 0.0F, 0.08F, filterSamples, this.shadowUpload);
+      putVec4(1.0F * this.schedule.celestialShadowFade(), 0.0F, 0.08F, filterSamples(this.activeQuality), this.shadowUpload);
       this.schedule.inverseViewRotation().get(this.shadowUpload);
       this.shadowUpload.rewind();
       this.shadowDataSlice = encoder.transientMemory().uploadGpu(this.shadowUpload, (long)RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment(), 128);
+   }
+
+   /**
+    * 档位对应的阴影滤波采样数。
+    * <p>
+    * 迁移前它是 {@code uploadShadowData} 里的一个 {@code switch (ShadowService.quality())}，
+    * 而那个查询现在归这里（见 {@code prepare}）。有一处**与原来不完全一样，是刻意的**：
+    * 原来的 switch 在质量为零时也答 {@code 1.0F}（它落进 {@code OFF} 分支），而这里会对
+    * {@code OFF} 抛。理由是这条路径的前提——{@code uploadShadowData} 只在阴影关卡真的执行时被调用，
+    * 也就是"质量大于零"；答一个"关着时的采样数"没有意义，安静地答错不如大声。
+    */
+   private static float filterSamples(ShaderQualityPreset quality) {
+      return switch (quality) {
+         case LOW -> 1.0F;
+         case MEDIUM -> 4.0F;
+         case HIGH -> 9.0F;
+         case ULTRA -> 16.0F;
+         case OFF -> throw new IllegalStateException("Shadow filter samples asked for while shadows are off");
+      };
    }
 
    public GpuBufferSlice shadowDataSlice() {
@@ -360,7 +454,7 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
       for(int i = 0; i < 4; ++i) {
          sameSizes &= this.targetSizes[i] == sizes[i];
          if (i < 2) {
-            sameSizes &= this.entityTargetSizes[i] == Math.min(maxShadowSize, ShadowService.enabled() ? CascadePlanner.entityTargetSize(quality, sizes, i) : 1);
+            sameSizes &= this.entityTargetSizes[i] == Math.min(maxShadowSize, quality.enabled() ? CascadePlanner.entityTargetSize(quality, sizes, i) : 1);
          }
       }
 
@@ -377,7 +471,7 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
                nextTerrain[i] = descriptor.allocate();
                descriptor.prepare(nextTerrain[i]);
                if (i < 2) {
-                  int entitySize = Math.min(maxShadowSize, ShadowService.enabled() ? CascadePlanner.entityTargetSize(quality, sizes, i) : 1);
+                  int entitySize = Math.min(maxShadowSize, quality.enabled() ? CascadePlanner.entityTargetSize(quality, sizes, i) : 1);
                   nextEntitySizes[i] = entitySize;
                   RenderTargetDescriptor entityDescriptor = new RenderTargetDescriptor(entitySize, entitySize, new RenderTargetDescriptor.TextureProperties(CLEAR, GpuFormat.R8_UNORM), TextureProperties.DEFAULT_DEPTH);
                   nextEntities[i] = entityDescriptor.allocate();
@@ -415,11 +509,23 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
       });
    }
 
+   /**
+    * 用户把阴影关掉之后，把这张渲染器占的 GPU 资源退掉（排到栅栏之后，因为本帧可能还在用）。
+    * <p>
+    * <b>判据是"质量是否为零"。</b>原先它还问过 {@code ShadowService.enabled()}，而那等于
+    * {@code shadowQuality() > 0 && shadowFrameReady()}，于是整个条件是
+    * {@code instance != null && (!quality || !frameReady) && quality <= 0}——按短路求值，
+    * 只有 {@code quality <= 0} 时才可能为真，{@code frameReady} 那一项从来看不到。所以这里直接问
+    * 质量，行为不变，而且这个类不必再知道"帧就绪"是 shadow 侧原理上答不了的那件事。
+    * <p>
+    * <b>它不再把实例置空。</b>退掉的是 GPU 资源；那个壳与它的计划状态留着，
+    * 下一次启用时接着用（计划状态由 {@link CascadePlanner#suspend()} 与
+    * {@code ensureResources} 的"资源变过没有"兜住）。见 {@link #get()}。
+    */
    public static void retireUnused() {
-      if (instance != null && !ShadowService.enabled() && NativePackRuntime.shadowQuality() <= 0) {
-         DirectionalShadowRenderer old = instance;
-         instance = null;
-         RenderSystem.queueFencedTask(() -> old.destroyTargets());
+      DirectionalShadowRenderer live = instance;
+      if (live != null && !shadowQualityEnabled.getAsBoolean()) {
+         RenderSystem.queueFencedTask(live::destroyTargets);
       }
    }
 
@@ -458,7 +564,11 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
     * {@link #ensureResources}（经由 {@code retireTargets}）与 {@link #retireUnused} 都会在重建资源时
     * 让"上一次的尺寸/资源"归零，而 {@code close()} 只拆 RenderTarget，不动帧号、布局版本、
     * 每个级联上次渲染的位置。换句话说：拿着同一个实例继续用的人，看到的计划历史是连续的。
-    * 这里不改它——改它就不是行为保持的提取了。
+    * <p>
+    * <b>它也不再置空实例。</b>这两个渲染器方法以前都会把 {@code instance} 清掉，于是 {@code close()}
+    * 之后的下一次 {@code get()} 会给出一个计划状态从头开始的新实例；现在实例只建一次（见 {@link #get()}），
+    * 拆的只是资源。实测确认这不需要靠重建实例来重置：{@link CascadePlanner#suspend()} 会在未启用时
+    * 把生效级联数归零，而重新分配资源会让 {@code ensureResources} 报"资源变过"，计划因此重算。
     * <p>
     * <b>另一处也刻意不动的不一致：</b>这里 {@code destroyBuffers()} 是**同步**调用的，而
     * {@code ensureResources}/{@code retireUnused} 走 {@code RenderSystem.queueFencedTask} 排到栅栏之后。
@@ -468,9 +578,9 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
     * 同步销毁疑似 use-after-free。修它要动的是拆资源的时序，属于另一个改动，不在本次范围。
     */
    public static void close() {
-      if (instance != null) {
-         instance.destroyTargets();
-         instance = null;
+      DirectionalShadowRenderer live = instance;
+      if (live != null) {
+         live.destroyTargets();
       }
    }
 }

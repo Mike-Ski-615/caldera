@@ -31,6 +31,22 @@ import org.joml.Vector4fc;
  * <p>
  * 这张表宽，是因为**门面本来就宽**（mixin 只能访问静态成员，那 37 个名字被 ADR-0003 冻结）；
  * 把它命名出来并没有新增接口面，只是把门面今天在转发的东西写清楚了一次。
+ * <p>
+ * <b>评审过：为什么不删层、也不按角色拆窄。</b>两条测算把它否掉了，记在这里免得下次再提一遍。
+ * <ul>
+ *    <li><b>{@link InstalledPackRuntime} 不是纯转发层。</b>它 34 个方法里有 6 个是自己实现的
+ *        （{@code prepare}、{@code settings}、{@code applyOptions}、{@code activate}、{@code close}、
+ *        {@code failure}），而 {@code prepare} 里是"后端未就绪返回 null / 包不是原生包就抛 / 读包图 /
+ *        建渲染器"四段判断加三个私有助手（含 {@code COLOR_GRADE} 迁移）。转发之所以存在，是因为
+ *        <b>场景帧</b>与<b>包生命周期</b>是两件事，而门面需要一张表。删掉它，那 6 个方法要另找地方，
+ *        而那正是这个模块存在的理由。</li>
+ *    <li><b>按角色拆窄帮不到消费者。</b>消费者只有两个——{@code MinecraftShaderHost}（要生命周期 + 查询）
+ *        与门禁（要场景帧 + 查询），拆成三个角色后两个消费者都要拿两张，总接口面不变。更要紧的是
+ *        缺席语义是**按方法**切的而不是按角色切的：34 个里 6 个抛、{@code render} 必须安全返回、
+ *        其余是空操作或常量。拆角色不会让 {@link NotInstalledPackRuntime} 少写一行。</li>
+ * </ul>
+ * 真正收掉的是**重复的答案**：那几个"缺席时答什么"的常量现在委托给 {@link AbsentRenderer}
+ * （见 {@link NotInstalledPackRuntime} 里那段注释），于是缺席只有一份定义。
  */
 interface PackRuntime {
 

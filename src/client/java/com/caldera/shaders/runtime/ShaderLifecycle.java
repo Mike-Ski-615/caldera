@@ -20,7 +20,15 @@ import java.util.concurrent.CompletableFuture;
  */
 interface ShaderLifecycle {
 
-   /** 读盘并把设置与磁盘对齐。必须在 {@link #install} 之后调用。 */
+   /**
+    * 读盘并把设置与磁盘对齐。必须在 {@link #install} 之后调用。
+    * <p>
+    * <b>完整契约：</b>读一次设置、确保包目录存在、扫一遍包目录；选中的包若已不在磁盘上，
+    * 就**回退到内置包并把它写回磁盘**（不重载资源——启动时的那次应用由 {@link #bootstrap()} 负责）。
+    * 回退是正常路径，因此不记日志。
+    * <p>
+    * 缺席实现（{@code NotInstalledShaderLifecycle}）里它是空操作——没有盘可读，也没有设置可写。
+    */
    void init();
 
    /** 启动：应用当前设置，并在后端不是 Vulkan 时留下一条警告。 */
@@ -56,7 +64,21 @@ interface ShaderLifecycle {
    /** 关掉一切：渲染器与可重载资源。 */
    void close();
 
-   /** 重新读盘；选中的包若已消失就回退到内置包并让它生效。 */
+   /**
+    * 重新读盘；选中的包若已消失就回退到内置包并让它生效。
+    * <p>
+    * <b>完整契约，三件事都有外面看得见的差别：</b>
+    * <ul>
+    *   <li><b>没有变化时</b>：返回的 future **立即完成**，不写盘、不重载资源
+    *       （这是「刷新」按钮最常见的路径，界面据此不必等）；</li>
+    *   <li><b>有变化时</b>：记一条日志说明原来的包没了，然后回退到内置包、写盘、并**真正应用**
+    *       （返回的 future 在资源重载结束时才完成）；</li>
+    *   <li><b>正在重载时</b>：{@code apply} 会拒绝并返回一个**失败**的 future
+    *       （"A shader reload is already in progress"）。</li>
+    * </ul>
+    * 缺席实现里它返回一个失败 future（"Caldera shader runtime is not installed"），
+    * 它与上面第三条并列时容易读混：一个是"忙"，一个是"没有东西可刷"。
+    */
    CompletableFuture<Void> refresh();
 
    /** 渲染器上一次失败的描述，从未失败时为 {@code null}。 */

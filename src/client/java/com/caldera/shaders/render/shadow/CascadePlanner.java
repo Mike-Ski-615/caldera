@@ -293,6 +293,37 @@ public final class CascadePlanner {
       return this.last.withActiveCascadeCount(0);
    }
 
+   /**
+    * 这个档位的阴影图一共要多少显存：地面级联 + 两张实体图。
+    * <p>
+    * 它原先在 {@code ShadowService.memoryBytes(int)} 里。搬过来是因为它**就是 sizing 算术**——
+    * 它逐字用的是本类的 {@code targetSizes} 与 {@code entityTargetSize}，而"档位对应几个多大连级"
+    * 的知识本来就归这里。调用方（graph 侧的显存预算）现在问它，而不是问那个绑定名表。
+    * <p>
+    * {@code quality == 0}（不投射阴影）时是 0，用的是**索引**而不是档位：0 在
+    * {@code ShaderQualityPreset} 里就是 {@code OFF}。
+    */
+   public static long shadowMemoryBytes(int quality) {
+      if (quality == 0) {
+         return 0L;
+      } else {
+         long bytes = 560L;
+         ShaderQualityPreset preset = ShaderQualityPreset.values()[quality];
+         int[] sizes = targetSizes(preset, Integer.MAX_VALUE);
+
+         for(int size : sizes) {
+            bytes += (long)size * (long)size * 5L;
+         }
+
+         for(int i = 0; i < 2; ++i) {
+            int size = entityTargetSize(preset, sizes, i);
+            bytes += (long)size * (long)size * 5L;
+         }
+
+         return bytes;
+      }
+   }
+
    /** 只读统计快照；不参与任何决策。 */
    public CascadePlanStats stats() {
       long churn = 0L;

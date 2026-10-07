@@ -56,7 +56,7 @@ public final class DirectionalShadowPass {
       LevelRenderState levelState = context.levelState();
 
       // 这一行在 try 之外是**原件的行为**，见类注释里记的那条疑点。
-      shadows.prepare(levelState);
+      shadows.prepare(levelState, context.packDistance());
 
       CommandEncoder encoder = context.encoder();
 
@@ -116,7 +116,14 @@ public final class DirectionalShadowPass {
     * 就能断言。
     */
    public interface Device {
-      void prepare(LevelRenderState levelState);
+      /**
+       * 收集本帧输入、保证 GPU 资源、交给计划模块决策。
+       * <p>
+       * {@code packDistance} 是**本帧输入**而不是从别处读来的：它是这个包声明的阴影距离，
+       * 而"包声明了什么"归 graph 侧；执行侧不该回头去问它（那一条曾经是
+       * {@code DirectionalShadowRenderer → NativePackRuntime} 的反向依赖）。
+       */
+      void prepare(LevelRenderState levelState, float packDistance);
 
       int activeCascadeCount();
 
@@ -148,6 +155,14 @@ public final class DirectionalShadowPass {
       LevelRenderState levelState();
 
       CommandEncoder encoder();
+
+      /**
+       * 这个包声明的阴影距离。
+       * <p>
+       * 它是**输入**：{@link Device#prepare} 要用它做级联覆盖范围的计算，而"包声明了什么"归调用方
+       * （graph 侧）回答——执行侧不回头去问它。
+       */
+      float packDistance();
 
       /** 把第 {@code cascade} 个级联的地形画进它的阴影贴图；画不了时是空操作。 */
       void renderTerrain(int cascade);
@@ -195,6 +210,7 @@ public final class DirectionalShadowPass {
    public record Frame(
           LevelRenderState levelState,
           CommandEncoder encoder,
+          float packDistance,
           boolean entitySubmits,
           boolean shadowDataConsumed,
           boolean heldLightOn,

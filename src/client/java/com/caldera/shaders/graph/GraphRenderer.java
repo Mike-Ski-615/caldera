@@ -20,6 +20,7 @@ import com.mojang.renderpearl.api.textures.GpuTexture;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.mojang.renderpearl.util.UncheckedAutoCloseable;
 import com.caldera.shaders.mixin.GraphDeviceAccessor;
+import com.caldera.shaders.render.shadow.CascadePlanner;
 import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
 import com.caldera.shaders.render.shadow.ShadowService;
 import java.io.ByteArrayInputStream;
@@ -49,7 +50,7 @@ import org.joml.Matrix4fc;
 import org.joml.Vector4f;
 import org.joml.Vector4fc;
 
-public final class GraphRenderer implements AutoCloseable {
+public final class GraphRenderer implements AutoCloseable, ActiveRenderer {
    private static long generation;
    private static final String VERTEX = "#version 450\nlayout(location=0) out vec2 texCoord;\nvoid main() {\n\ttexCoord = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);\n\tgl_Position = vec4(texCoord * 2.0 - 1.0, 0.0, 1.0);\n}\n";
    private static final String PRESENT = "#version 450\nlayout(location=0) in vec2 texCoord;\nlayout(location=0) out vec4 color;\nuniform sampler2D Source;\nvoid main() { color = texture(Source, texCoord); }\n";
@@ -97,6 +98,18 @@ public final class GraphRenderer implements AutoCloseable {
     * 因为它们的读写散布在这个类的 82 行里，把它们搬进访问器是一次与"谁负责释放"无关的大改。
     */
    private final GraphResourceLedger resources = new GraphResourceLedger();
+
+   /**
+    * 这个对象背后有一个真的渲染器。
+    * <p>
+    * {@link ActiveRenderer} 上的一问，实现在这里只是为了满足接口；"缺席"那一半在
+    * {@link AbsentRenderer} 里，而外面只有 {@link SceneFrame} 会问，它手上拿的是
+    * {@link InstalledRenderer}。
+    */
+   @Override
+   public boolean present() {
+      return true;
+   }
 
    public MaterialTable materials() {
       return this.materials;
@@ -251,7 +264,7 @@ public final class GraphRenderer implements AutoCloseable {
       width = Math.max(1, width);
       height = Math.max(1, height);
       if (this.width != width || this.height != height) {
-         if (this.graph.allocationBytes(width, height) + this.textureBytes + (this.heldShadows == null ? 0L : 7864320L) + this.sceneCapture.bytes(width, height) + ShadowService.memoryBytes(this.graph.shadowQuality()) > this.graph.budgetBytes()) {
+         if (this.graph.allocationBytes(width, height) + this.textureBytes + (this.heldShadows == null ? 0L : 7864320L) + this.sceneCapture.bytes(width, height) + CascadePlanner.shadowMemoryBytes(this.graph.shadowQuality()) > this.graph.budgetBytes()) {
             throw new IllegalArgumentException("Textures and render targets exceed pack memory budget");
          } else {
             Map<String, Image[]> fresh = new LinkedHashMap<>();

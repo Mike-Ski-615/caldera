@@ -1,7 +1,7 @@
 package com.caldera.shaders.pack;
 
 import com.caldera.shaders.config.ShaderConfig;
-import com.caldera.shaders.graph.NativePackRuntime;
+import com.caldera.shaders.graph.PackFiles;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -20,12 +20,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * ShaderPackScanner 与 NativePackRuntime 决定「一个光影包算不算数」。
- * scanDirectory(Path) 与 isNative(Path) 都直接收路径、不碰 FabricLoader，
+ * ShaderPackScanner 与 PackFiles 决定「一个光影包算不算数」。
+ * scanDirectory(Path) 与 PackFiles.isNative(Path) 都直接收路径、不碰 FabricLoader，
  * 所以可以完全离线测试，不需要 Minecraft、GPU 或窗口。
  *
- * 受支持的门槛比 0.3.1 高：必须同时通过 isNative + PackFiles.read + PackGraph.parse，
- * 任何一步失败都会落到 "not-caldera-compatible"。
+ * 「是不是原生包」这条规则只有一处：PackFiles.isNative。受支持的门槛比它高一点——
+ * 清单还必须**能解析**（PackFiles.read + PackGraph.parse），任何一步失败都落到
+ * "not-caldera-compatible"。
  */
 class ShaderPackScannerTest {
 
@@ -232,28 +233,28 @@ class ShaderPackScannerTest {
 	void isNativeAcceptsADirectoryWithARootManifest(@TempDir Path dir) throws IOException {
 		writeValidPack(dir);
 
-		assertTrue(NativePackRuntime.isNative(dir));
+		assertTrue(PackFiles.isNative(dir));
 	}
 
 	@Test
 	void isNativeAcceptsADirectoryWithTheManifestInAContainerFolder(@TempDir Path dir) throws IOException {
 		writeValidPack(dir.resolve("Container"));
 
-		assertTrue(NativePackRuntime.isNative(dir), "容器目录在一层以内必须被找到");
+		assertTrue(PackFiles.isNative(dir), "容器目录在一层以内必须被找到");
 	}
 
 	@Test
 	void isNativeRejectsADirectoryWithoutAManifest(@TempDir Path dir) throws IOException {
 		Files.createDirectories(dir.resolve("shaders"));
 
-		assertFalse(NativePackRuntime.isNative(dir));
+		assertFalse(PackFiles.isNative(dir));
 	}
 
 	@Test
 	void isNativeRejectsAManifestBuriedTooDeep(@TempDir Path dir) throws IOException {
 		writeValidPack(dir.resolve("a").resolve("b"));
 
-		assertFalse(NativePackRuntime.isNative(dir), "caldera.json 超过两层就不算原生包");
+		assertFalse(PackFiles.isNative(dir), "caldera.json 超过一层容器目录就不算原生包");
 	}
 
 	@Test
@@ -261,7 +262,7 @@ class ShaderPackScannerTest {
 		Path zip = dir.resolve("Root.zip");
 		writeZip(zip, "caldera.json", VALID_MANIFEST);
 
-		assertTrue(NativePackRuntime.isNative(zip));
+		assertTrue(PackFiles.isNative(zip));
 	}
 
 	@Test
@@ -269,7 +270,7 @@ class ShaderPackScannerTest {
 		Path zip = dir.resolve("Wrapped.zip");
 		writeZip(zip, "Container/caldera.json", VALID_MANIFEST);
 
-		assertTrue(NativePackRuntime.isNative(zip));
+		assertTrue(PackFiles.isNative(zip));
 	}
 
 	@Test
@@ -277,12 +278,12 @@ class ShaderPackScannerTest {
 		Path zip = dir.resolve("Plain.zip");
 		writeZip(zip, "shaders/a.fsh", "#version 460 core\n");
 
-		assertFalse(NativePackRuntime.isNative(zip));
+		assertFalse(PackFiles.isNative(zip));
 	}
 
 	@Test
 	void isNativeRejectsAMissingPath(@TempDir Path dir) {
-		assertFalse(NativePackRuntime.isNative(dir.resolve("nope")));
-		assertFalse(NativePackRuntime.isNative(dir.resolve("nope.zip")));
+		assertFalse(PackFiles.isNative(dir.resolve("nope")));
+		assertFalse(PackFiles.isNative(dir.resolve("nope.zip")));
 	}
 }

@@ -9,23 +9,35 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 拆卸路径的三条契约：{@code close()} 在没有分配过任何东西时安全、可以重复调用，
- * 以及它**不**清计划状态——最后这条是刻意保留的不对称。
+ * 拆卸路径的契约：{@code close()} 在没有分配过任何东西时安全、可以重复调用，
+ * 它**不**清计划状态——最后这条是刻意保留的不对称——以及它**不再换掉实例**。
  * <p>
  * 这些事实原先只存在于 {@code destroyTargets} 的循环体里，而且其中一条
  * （{@code close()} 同步拆纹理、{@code ensureResources}/{@code retireUnused} 走栅栏）根本读不出来。
  * 这里能钉住的部分就钉住；钉不住的部分在下面写清楚为什么。
+ * <p>
+ * <b>实例只建一次</b>（{@code DirectionalShadowRenderer.get()}），所以每个用例必须自己
+ * {@link #installed()}，而收尾要 {@code uninstall()}——否则"装配之前"那个 null 状态会随执行顺序
+ * 时有时无。
  */
 class DirectionalShadowRendererTeardownTest {
 
    @AfterEach
    void leaveNoInstanceBehind() {
       DirectionalShadowRenderer.close();
+      DirectionalShadowRenderer.uninstall();
+   }
+
+   /** 直接建一个可驱动的渲染器。**不碰**那个进程级实例（它由 {@code install} 建）。 */
+   private static DirectionalShadowRenderer installed() {
+      return new DirectionalShadowRenderer();
    }
 
    /** 用真实的相机与投影推一帧计划，让计划状态里确实有东西可被清掉。 */
@@ -53,28 +65,50 @@ class DirectionalShadowRendererTeardownTest {
             false);
    }
 
+   /**
+    * 没有实例时（装配之前）{@code close()} 是空操作。
+    * <p>
+    * 这个状态现在是"装好之前"，而不再是"上一个实例刚被 close 掉"——实例只建一次，
+    * 见 {@code DirectionalShadowRenderer.get()}。
+    */
    @Test
-   void closeIsSafeWhenNothingWasAllocated() {
-      DirectionalShadowRenderer.get();
+   void closeWithoutAnInstanceIsANoOp() {
+      // 装配之前：uninstall 之后那个进程级实例就是 null。
+      assertNull(DirectionalShadowRenderer.get(), "装配之前没有实例");
 
-      // destroyTargets 只是遍历四个槽位并检查 null：没有 RenderTarget 时不碰 RenderSystem、不碰 GPU。
       assertDoesNotThrow(DirectionalShadowRenderer::close);
    }
 
+   /**
+    * 同一个实例上 {@code close()} 可以重复调用，而且它**不重置计划状态**。
+    * <p>
+    * 这条钉的是阶段二改掉的那条行为：以前 {@code close()} 会把 {@code instance} 清掉，
+    * 于是"关掉阴影再打开"会拿到一个计划状态从头开始的新实例。现在实例只建一次，
+    * 拆的只是 GPU 资源，而重新分配资源会让 {@code ensureResources} 报"资源变过"，计划因此重算。
+    */
    @Test
-   void closeCanBeCalledTwice() {
-      DirectionalShadowRenderer.get();
+   void closeCanBeCalledTwiceAndDoesNotResetThePlan() {
+      DirectionalShadowRenderer shadows = installed();
+      driveOneFrame(shadows.planner());
+      long churn = shadows.planStats().totalLayoutVersionChurn();
+      assertTrue(churn > 0L);
 
       assertDoesNotThrow(() -> {
          DirectionalShadowRenderer.close();
-         // 第二次是同一条路径，但 instance 已经是 null——也就是"什么都没分配过"的那种安全情形。
          DirectionalShadowRenderer.close();
       });
+
+      assertFalse(shadows.resourcesReady(), "资源确实被拆了");
+      assertEquals(churn, shadows.planStats().totalLayoutVersionChurn(), "重复 close 不该重置计划");
    }
 
+   /**
+    * 什么都没分配过时 {@code close()} 安全——{@code destroyTargets} 只遍历四个槽位并检查 null，
+    * 不碰 {@code RenderSystem}、不碰 GPU。
+    */
    @Test
-   void closeWithoutAnInstanceIsANoOp() {
-      DirectionalShadowRenderer.close();
+   void closeIsSafeWhenNothingWasAllocated() {
+      installed();
 
       assertDoesNotThrow(DirectionalShadowRenderer::close);
    }
@@ -82,7 +116,7 @@ class DirectionalShadowRendererTeardownTest {
    @Test
    void retireUnusedIsSafeWhenNothingWasEverCreated() {
       // instance 为 null：retireUnused 的第一道条件就不成立，于是它连栅栏都不排。
-      DirectionalShadowRenderer.close();
+      assertNull(DirectionalShadowRenderer.get());
 
       assertDoesNotThrow(DirectionalShadowRenderer::retireUnused);
    }
@@ -110,7 +144,7 @@ class DirectionalShadowRendererTeardownTest {
     */
    @Test
    void closeDoesNotClearThePlanStateOfTheInstanceItCloses() {
-      DirectionalShadowRenderer shadows = DirectionalShadowRenderer.get();
+      DirectionalShadowRenderer shadows = installed();
       CascadePlanner planner = shadows.planner();
       driveOneFrame(planner);
       long churn = planner.stats().totalLayoutVersionChurn();
@@ -124,19 +158,47 @@ class DirectionalShadowRendererTeardownTest {
       assertEquals(1L, shadows.planner().stats().terrainUpdates(0), "close() 不该清掉每级联的更新计数");
    }
 
+   /**
+    * {@code close()} 之后**同一个实例**还在，它的计划历史也是连续的。
+    * <p>
+    * 这条取代了旧的 {@code aFreshInstanceAfterCloseStartsFromNothing}：那条钉的是"close 会置空实例，
+    * 下一次 {@code get()} 拿到计划状态从头开始的新实例"，而阶段二把这个行为去掉了——实例只建一次，
+    * 拆的只是 GPU 资源。之所以不需要靠重建实例来重置计划，是因为
+    * {@code CascadePlanner.suspend()} 会在未启用时把生效级联数归零，而重新分配资源会让
+    * {@code ensureResources} 报"资源变过"，计划因此重算。
+    */
    @Test
-   void aFreshInstanceAfterCloseStartsFromNothing() {
-      DirectionalShadowRenderer shadows = DirectionalShadowRenderer.get();
+   void closeKeepsThePlanHistoryOnTheSameInstance() {
+      DirectionalShadowRenderer shadows = installed();
       driveOneFrame(shadows.planner());
-      assertTrue(shadows.planner().stats().totalLayoutVersionChurn() > 0L);
+      long churn = shadows.planStats().totalLayoutVersionChurn();
+      assertTrue(churn > 0L);
 
       DirectionalShadowRenderer.close();
-      DirectionalShadowRenderer fresh = DirectionalShadowRenderer.get();
 
-      // 计划状态活在实例上，所以 get() 重建实例时它自然从头开始：这条与上一条并不矛盾，
-      // 上一条说的是"close() 没有主动去清那个实例的计划"。
-      assertNotSame(shadows, fresh);
-      assertEquals(0, fresh.activeCascadeCount());
-      assertEquals(0L, fresh.planStats().totalLayoutVersionChurn());
+      assertFalse(shadows.resourcesReady(), "资源确实被拆了");
+      assertEquals(churn, shadows.planStats().totalLayoutVersionChurn(),
+            "计划历史连续——与旧的“close 之后从头开始”相反");
    }
+
+   /**
+    * <b>这里故意没有测试：{@code install()} 装的依赖必须活过 {@code close()} 拆解那一刻。</b>
+    * <p>
+    * 那条不变量是被一次真实崩溃逼出来的：资源重载会走
+    * {@code closeReloadableResources()} → {@link DirectionalShadowRenderer#close()}，而它把
+    * {@code instance} 置空。曾经把宿主与包状态挂在**实例**上，于是重载之后 {@code get()} 建出来的
+    * 就是"没装宿主"的那一个，{@code prepare()} 随即在渲染帧里抛 {@code IllegalStateException}
+    * 把游戏崩掉。修法是让这两样留在静态字段上（见 {@code host} 的注释）。
+    * <p>
+    * <b>为什么钉不住，实测如下。</b>{@code prepare()} 里读到宿主的那条路，前提是质量档位大于零；
+    * 而质量来自"有一份生效的包图 → 有一个渲染器"，那条链在纯 JVM 里造不出来（{@code GraphRenderer}
+    * 的构造要真的 {@code GpuDevice}，见 {@code SceneFrameTest} 记的同一道界限）。绕开 {@code prepare}
+    * 直接断言依赖也**不行**：字段声明一旦是 {@code static}，无论 {@code install} 写的是
+    * {@code host} 还是 {@code get().host}，读到的都是同一个值——那样的断言恒真，试过，确实恒真，
+    * 所以删掉了，不在这里留一条骗人的绿灯。
+    * <p>
+    * 因此这条不变量的守卫是：{@code host} 字段上的注释（写明"必须是静态的，以及为什么"），
+    * 以及一次客户端内资源重载的手工验收。这是本项目已知的验证缺口之一，与 ADR-0003 记的
+    * "渲染结果未被逐像素比对"同类。
+    */
 }

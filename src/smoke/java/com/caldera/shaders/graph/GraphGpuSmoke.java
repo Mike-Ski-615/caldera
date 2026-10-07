@@ -15,7 +15,6 @@ import com.mojang.renderpearl.api.pipeline.ColorTargetState;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.caldera.shaders.render.shadow.CascadePlanStats;
 import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
-import com.caldera.shaders.render.shadow.ShadowService;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
@@ -309,7 +308,7 @@ public final class GraphGpuSmoke {
          return;
       }
 
-      CascadePlanStats stats = ShadowService.planStats();
+      CascadePlanStats stats = DirectionalShadowRenderer.get().planStats();
       LogUtils.getLogger().info("CALDERA_WORLD_SMOKE_PASS frames={} terrainCaptures={} scenePipelines={} shadowCascades={} shadowTerrainUpdates={} shadowLayoutChurn={}", NativePackRuntime.renderedFrames(), NativePackRuntime.terrainCaptures(), NativePackRuntime.sceneReplacementCount(), cascades, stats.terrainUpdatesSummary(), stats.totalLayoutVersionChurn());
       client.stop();
    }

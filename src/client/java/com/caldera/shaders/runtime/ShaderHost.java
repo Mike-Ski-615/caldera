@@ -55,7 +55,7 @@ public interface ShaderHost {
 	 * 光影包目录在哪。
 	 * <p>
 	 * 这是一个**纯查询**：不建目录、不读盘，只回答"包放在哪里"。迁移前这个位置有四条绕过端口的路径
-	 * ——{@code InstalledPackRuntime} 拼包文件路径、{@code NativePackRuntime.selected} 判断某个 id
+	 * ——{@code InstalledPackRuntime} 拼包文件路径、当时门面上的 {@code selected} 判断某个 id
 	 * 是不是原生包、{@code ShaderPackScanner} 自己扫、以及界面"打开包文件夹"——于是"包在哪"这条
 	 * 知识散在四个模块里，而**外部包在测试里根本打不开**（只有 classpath 上的内置包可达）。
 	 * <p>

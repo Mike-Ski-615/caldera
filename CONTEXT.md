@@ -6,9 +6,11 @@
 ## 光影包与包图
 
 - **光影包（shader pack）** — 用户放进光影包目录的一份资源。**原生包**是其中能解析出 `caldera.json`
-  的那些；旧格式的包由 `LegacyPackMigration` 在扫描时摘掉。包"算不算数"由 `ShaderPackScanner`
-  与 `NativePackRuntime.isNative` 共同决定。**包目录在哪**由端口回答（`ShaderHost.packsRoot()`）：
-  扫描器、运行时门面与界面都只认路径，不认 `FabricLoader`，也认不得"shaders"这个名字。
+  的那些；旧格式的包由 `LegacyPackMigration` 在扫描时摘掉。**包根规则**（清单在包根或一层容器目录里，
+  且恰好一份）只有一处：`PackFiles.isNative`。界面列不列它另有一道门槛——清单还得**能解析**
+  （`ShaderPackScanner` 走 `PackFiles.read` + `PackGraph.parse`）。**包目录在哪**由端口回答
+  （`ShaderHost.packsRoot()`）：扫描器、运行时门面与界面都只认路径，不认 `FabricLoader`，
+  也认不得"shaders"这个名字。
 - **包图（pack graph）** — 一份 `caldera.json` 解析出来的完整描述：资源、pass、材质、场景程序、
   选项定义、显存预算。模块是 `PackGraph`，深而窄：入口只有 `parse(String)`。
 - **包文件（pack files）** — 一个包在磁盘/压缩包里的字节。模块是 `PackFiles`。
@@ -28,6 +30,14 @@
 - **渲染器（renderer）** — 一份包图在 GPU 上的实例，生命周期是 prepare → activate → close。
   模块是 `GraphRenderer`；它的 GPU 资源释放由 `GraphResourceLedger` 登记。
   "这一帧在用哪个渲染器"归 `SceneFrame` 持有，而"什么时候换上／换下"归 `NativePackRuntime` 决定。
+- **生效渲染器（active renderer）** — "这一帧生效的是哪一个渲染器"这张表，模块是 `ActiveRenderer`
+  （包级可见）。**缺席是一个实现了同一张表的适配器，不是 null**：`AbsentRenderer`（常量、无状态）答
+  "没有生效的渲染器"，`InstalledRenderer` 把 `GraphRenderer` 包起来。`SceneFrame.attach` 只接受它，
+  所以"有没有生效的渲染器"只有 `ActiveRenderer.present()` 一处可问。
+  它与上面那条**渲染器**的区别：那是 GPU 实例，这是"这一帧用哪一个"；与下面的 `PreparedRenderer 句柄`
+  的区别：那个承载生命周期**动作**（activate / close），这个承载**查询**。三者共同点只有一条：永不为 null。
+  别把缺席的它与 `NotInstalledPackRuntime` 合并——那一个答的是"整份运行时还没装"，两处回答故意不同
+  （`shadowFrameReady()` 与 `render(null, …)` 的契约都不一样）。
 - **场景目标（scene target）** — 包图声明为"要接管的原版渲染目标"的那几张图，用于把原版几何
   画进原生 pass。
 - **帧 uniform（CalderaFrame）** — 每帧一次、全包共用的那段 uniform 块。布局（23 个字段、1072 字节）

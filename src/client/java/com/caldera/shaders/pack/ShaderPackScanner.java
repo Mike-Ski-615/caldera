@@ -1,7 +1,6 @@
 package com.caldera.shaders.pack;
 
 import com.caldera.shaders.config.ShaderConfig;
-import com.caldera.shaders.graph.NativePackRuntime;
 import com.caldera.shaders.graph.PackFiles;
 import com.caldera.shaders.graph.PackGraph;
 import java.io.IOException;
@@ -20,9 +19,13 @@ import java.util.stream.Stream;
  * <b>它不认识"包目录在哪"。</b>路径一律由调用方给——生产侧那一头是
  * {@link com.caldera.shaders.runtime.ShaderHost#packsRoot()} 的实现。迁移前这里有一个
  * {@code shaderPackDirectory()} 直接拿 {@code FabricLoader.getInstance().getGameDir()}，
- * 于是"包在哪"这件事绕过了端口：{@code InstalledPackRuntime}、{@code NativePackRuntime.selected}
- * 和屏幕各拿一次。现在这个模块是纯的（只认路径），{@code scanDirectory(Path)} 与
- * {@code NativePackRuntime.isNative(Path)} 一直如此，也是测试唯一能驱动的地方。
+ * 于是"包在哪"这件事绕过了端口：{@code InstalledPackRuntime}、门面那道 {@code selected}
+ * 和屏幕各拿一次。现在这个模块是纯的（只认路径），{@code scanDirectory(Path)} 一直如此，
+ * 也是测试唯一能驱动的地方。
+ * <p>
+ * <b>"算不算原生包"不在这里。</b>那是 {@link PackFiles#isNative} 的一条规则，本模块只是它的
+ * 调用者之一；扫描结果额外要求清单**能解析**（见 {@link #classify}），因为界面上列出的包必须
+ * 真的能被打开。
  */
 public final class ShaderPackScanner {
 
@@ -90,19 +93,47 @@ public final class ShaderPackScanner {
    }
 
    private static void classify(Path path, List<AvailableShaderPack> supported, List<UnsupportedShaderPack> unsupported) {
-      String fileName = path.getFileName().toString();
       if (!isCandidatePack(path)) {
-         unsupported.add(new UnsupportedShaderPack(fileName, "not-a-shader-pack", path));
+         unsupported.add(new UnsupportedShaderPack(path.getFileName().toString(), "not-a-shader-pack", path));
+      } else if (isReadableNativePack(path)) {
+         supported.add(toAvailablePack(path));
       } else {
-         if (containsSupportedShaders(path)) {
-            supported.add(toAvailablePack(path));
-         } else {
-            unsupported.add(new UnsupportedShaderPack(fileName, "not-caldera-compatible", path));
-         }
-
+         unsupported.add(new UnsupportedShaderPack(path.getFileName().toString(), "not-caldera-compatible", path));
       }
    }
 
+   /**
+    * 这个条目是不是一个**能打开**的原生包。
+    * <p>
+    * 两道：{@link PackFiles#isNative} 回答"包根在不在"（那条规则归它），再真读一遍并解析清单，
+    * 回答"打开了能不能用"。第二道是必要的——界面上列出来的包必须真的能被选中并生效，
+    * 而 {@code isNative} 只保证清单**在**，不保证它**读得开、解析得动**。
+    * <p>
+    * 两条失败都算"不是原生包"：清单里引用的文件缺失是 {@link IOException}，
+    * 清单本身不合格式是 {@link IllegalArgumentException}（{@code PackGraph.parse} 抛的）。
+    */
+   private static boolean isReadableNativePack(Path path) {
+      if (!PackFiles.isNative(path)) {
+         return false;
+      }
+
+      try {
+         PackFiles files = PackFiles.read(path);
+         PackGraph.parse(files.text("caldera.json"));
+         return true;
+      } catch (IllegalArgumentException | IOException notReadable) {
+         return false;
+      }
+   }
+
+   /**
+    * 这个条目有没有可能是光影包：一个目录，或者一个 {@code .zip}。
+    * <p>
+    * 它与 {@link PackFiles#isNative} 的分工是"先看形状、再看内容"，两者都会被问；分开是为了让
+    * 被忽略的条目能说出**哪一种**不行——一个 {@code readme.txt} 与一个不带 {@code caldera.json} 的
+    * 文件夹，用户要做的补救不是同一件事。{@code InstalledPackRuntime.selected} 那条路上不需要这一问，
+    * 因为"不是目录也不是 zip"的路径在 {@code isNative} 那里同样是 {@code false}。
+    */
    private static boolean isCandidatePack(Path path) {
       if (Files.isDirectory(path, new LinkOption[0])) {
          return true;
@@ -116,20 +147,6 @@ public final class ShaderPackScanner {
       String fileName = path.getFileName().toString();
       String displayName = fileName.endsWith(".zip") ? fileName.substring(0, fileName.length() - 4) : fileName;
       return new AvailableShaderPack(fileName, displayName, path, Files.isDirectory(path, new LinkOption[0]));
-   }
-
-   private static boolean containsSupportedShaders(Path path) {
-      try {
-         if (NativePackRuntime.isNative(path)) {
-            PackFiles files = PackFiles.read(path);
-            PackGraph.parse(files.text("caldera.json"));
-            return true;
-         } else {
-            return false;
-         }
-      } catch (IllegalArgumentException | IOException var2) {
-         return false;
-      }
    }
 
    public static record UnsupportedShaderPack(String displayName, String reason, Path path) {

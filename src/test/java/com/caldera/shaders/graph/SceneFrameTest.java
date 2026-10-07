@@ -4,9 +4,11 @@ import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.runtime.FakeShaderHost;
 import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.state.level.LevelRenderState;
 import org.joml.Matrix4f;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -21,12 +23,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 单例（{@code ShaderRuntime.resourceReloading()}、{@code DirectionalShadowRenderer.isRenderingShadowMap()}），
  * 摆布它们要动另外两个模块的全局状态。现在两者都是构造时注入的，于是重载闸门可以在这里逐格钉住。
  * <p>
- * <b>能钉的与钉不到的，界限写在这里。</b>门闸里"有没有渲染器"那一项观测不到：
- * {@code GraphRenderer} 的构造要真的 {@code GpuDevice}，而它是 final，造不出替身。于是
+ * <b>能钉的与钉不到的，界限写在这里。</b>门闸里"有没有生效的渲染器"那一项曾经观测不到：
+ * {@code GraphRenderer} 的构造要真的 {@code GpuDevice}，而它是 final，造不出替身；于是
  * {@code canDraw}/{@code canCaptureScene}/{@code canAttachScene} 在这里恒为 false，
- * "阴影关卡那一项只排除捕获、不排除世界深度"以及"捕获只在阴影关卡之外发生"这两条差异也钉不住——
- * 它们与"有没有渲染器"相与之后观测不到。这里钉的是不依赖渲染器的那几项：阶段与顺序强制、
- * 重载闸门、几何重建闸门、失败语义，以及 {@code shadowFrameReady()} **故意不看渲染器**这条差异。
+ * "阴影关卡那一项只排除捕获、不排除世界深度"以及"捕获只在阴影关卡之外发生"这两条差异也钉不住
+ * ——它们与"有没有渲染器"相与之后观测不到。
+ * <p>
+ * <b>那条界限现在退后了一步。</b>{@code SceneFrame} 手上的渲染器是 {@link ActiveRenderer}，
+ * 而缺席是 {@link AbsentRenderer#INSTANCE} 这个对象——所以"没有生效的渲染器"这件事可以**被摆布**，
+ * 而不是只能靠"没调 {@code attach}"来表示。本类钉的是它；"有渲染器时那半边门闸"仍旧钉不住
+ * （那需要 {@code GraphRenderer} 的替身，仍然不存在），所以下面每一处都写清它钉的是哪一半。
  */
 class SceneFrameTest {
 
@@ -36,7 +42,20 @@ class SceneFrameTest {
 
 	/** 每一步都造一个新的，免得一个用例的摆布漏到下一个。 */
 	private SceneFrame frame() {
-		return new SceneFrame(this.host, () -> this.config, () -> this.reloading, () -> false);
+		return new SceneFrame(this.host, () -> this.config, () -> this.reloading, () -> false,
+				() -> true);
+	}
+
+	/**
+	 * 显式把一个**缺席**的渲染器装上去，而不是靠"没调 attach"。
+	 * <p>
+	 * 这一行就是这次改动的证明：迁移前"没有渲染器"只能由字段为 null 表示，
+	 * 而现在它是与"有渲染器"同一张表上的另一个实现。
+	 */
+	private SceneFrame frameWithAbsentRenderer() {
+		SceneFrame frame = this.frame();
+		frame.attach(AbsentRenderer.INSTANCE, null);
+		return frame;
 	}
 
 	/** 一个真实可用的相机与视图（与 NativePackRuntimeLifecycleTest 用的是同一份探针结论）。 */
@@ -174,11 +193,17 @@ class SceneFrameTest {
 		assertEquals(recorded, frame.failure());
 	}
 
-	// ---------------------------------------------------------------- 没有渲染器时的安全答案
+	// ---------------------------------------------------------------- 缺席渲染器的安全答案
 
+	/**
+	 * 显式装上一个**缺席**的渲染器之后，需要渲染器的每一问都答得安全。
+	 * <p>
+	 * 这一条是迁移前那条同名用例的等价物：断言一条没改，只是"没有渲染器"从一个缺失的字段变成了
+	 * {@link AbsentRenderer#INSTANCE} 这个对象。
+	 */
 	@Test
 	void everythingThatNeedsARendererAnswersSafelyWithoutOne() {
-		SceneFrame frame = frame();
+		SceneFrame frame = frameWithAbsentRenderer();
 		CameraRenderState camera = beginScene(frame);
 
 		assertTrue(frame.shadowFrameReady(), "这一条故意不看有没有渲染器：ShadowService 拿它与质量相与");
@@ -186,7 +211,6 @@ class SceneFrameTest {
 		assertNull(frame.weatherView());
 		assertNull(frame.heldShadows());
 		assertNull(frame.materials());
-		assertNull(frame.renderer());
 		assertEquals(0, frame.shadowQuality());
 		assertEquals(128, frame.shadowDistance());
 		assertEquals(0L, frame.renderedFrames());
@@ -199,5 +223,64 @@ class SceneFrameTest {
 
 		RenderPassDescriptor descriptor = RenderPassDescriptor.builder(() -> "probe").build();
 		assertSame(descriptor, frame.sceneAttachments(descriptor), "没有渲染器时不许改道");
+	}
+
+	/**
+	 * 「有没有生效的渲染器」这一问现在是一个可摆布的对象。
+	 * <p>
+	 * 它取代了原先那条 {@code assertNull(frame.renderer())}：迁移前这个问题只能用"字段是不是 null"
+	 * 来回答，于是它既钉不住（造不出有渲染器的那一半），也说不清"缺席"到底意味着什么。
+	 */
+	@Test
+	void absenceIsAnObjectNotAMissingField() {
+		assertFalse(AbsentRenderer.INSTANCE.present(), "缺席侧要说自己不在");
+
+		SceneFrame frame = frameWithAbsentRenderer();
+
+		assertFalse(AbsentRenderer.INSTANCE.present(), "装上一个缺席的渲染器不会被当成有渲染器");
+		assertFalse(frame.render(this.config, new CameraRenderState(), new Matrix4f()),
+				"缺席的渲染器不接管任何一帧");
+	}
+
+	/**
+	 * 阴影资源没就绪时，**缺席**的渲染器不会触发那条"阴影生产者没跑"的检查。
+	 * <p>
+	 * <b>这条测试删掉了，原因记在这里：</b>它试图断言的"供应商根本不会被问"在缺席路径上恒真——
+	 * {@link SceneFrame#scenePipeline} 的第一道门闸 {@code canAttachScene()} 就返回假，整个
+	 * {@code if} 根本不执行。要真的走到那个合取式，需要一个**在场的**渲染器，而那正是
+	 * 这个测试类注释里写明的界限（{@code GraphRenderer} 是 final，构造要真的 {@code GpuDevice}）。
+	 * 试过、确实恒真，所以不留一条骗人的绿灯；那三位的顺序改为在生产代码里注明。
+	 */
+
+	/**
+	 * 缺席侧的**转发形状**第一次可以直接断言。
+	 * <p>
+	 * {@code sceneAttachments} 在缺席时必须把传进来的描述符原样还回去，而这一半原先钉不住：
+	 * {@link SceneFrame#sceneAttachments} 在门闸为假时**根本不会**走到渲染器那一侧，
+	 * 于是"适配器自己有没有改道"没有观测点。现在它是一个可以单独驱动的对象。
+	 */
+	@Test
+	void theAbsentRendererPassesAttachmentsThroughUntouched() {
+		RenderPassDescriptor descriptor = RenderPassDescriptor.builder(() -> "probe").build();
+
+		assertSame(descriptor, AbsentRenderer.INSTANCE.sceneAttachments(descriptor, null));
+	}
+
+	/**
+	 * 天空状态**没有被提取过**时，帧 uniform 的组装不许抛。
+	 * <p>
+	 * {@code SkyRenderState.skyColor} 是可空字段：构造器与 {@code reset()} 都不设它，唯一写入者
+	 * {@code SkyRenderer.extractRenderState} 在 vanilla 里是被 {@code skyRenderer != null} 守卫着的。
+	 * 曾经在这里直接解引用，于是在真客户端上抛 NPE —— 而后果不是画错，是 {@link SceneFrame}
+	 * 把整份光影包**暂停**掉且不再恢复（实测日志：{@code Shader pack paused: ... sky.skyColor is null}）。
+	 * <p>
+	 * 这条钉的是"不抛"，不是"画对"：那份状态本来就无从画对。缺的那三个分量退到 0，
+	 * 而这个测试对它们的值不作要求——{@code environment[]} 的初值就是 0。
+	 */
+	@Test
+	void anUnextractedSkyStateDoesNotBreakTheFrameUniforms() {
+		LevelRenderState state = new LevelRenderState();
+
+		assertDoesNotThrow(() -> new GraphFrame().environment(state, null, 0.0F));
 	}
 }

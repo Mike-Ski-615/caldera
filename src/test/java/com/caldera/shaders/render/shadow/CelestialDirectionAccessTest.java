@@ -108,7 +108,9 @@ class CelestialDirectionAccessTest {
 
    @Test
    void thePublicRendererAccessorsReadTheCurrentCelestialState() {
-      DirectionalShadowRenderer renderer = DirectionalShadowRenderer.get();
+      // 直接建一个：实例只建一次（装配时由 install 建），而这里要的只是一个可驱动的渲染器，
+      // 不必去动那个进程级实例。
+      DirectionalShadowRenderer renderer = new DirectionalShadowRenderer();
       renderer.planner().updateCelestialDirections(DAY_ANGLE, NIGHT_ANGLE);
 
       Vector3f sun = new Vector3f();

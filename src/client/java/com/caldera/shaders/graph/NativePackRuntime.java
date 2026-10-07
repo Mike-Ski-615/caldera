@@ -8,34 +8,30 @@ import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
 import com.caldera.shaders.runtime.ShaderHost;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Stream;
-import java.util.zip.ZipFile;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.state.level.LevelRenderState;
 import org.joml.Matrix4fc;
 import org.joml.Vector4fc;
 
 /**
- * 光影包运行时的**门面**：mixin 能摸到的全部入口，以及几个不需要实例的纯判断。
+ * 光影包运行时的**门面**：mixin 能摸到的全部入口。
  * <p>
  * 三轮下来这个类剥掉了三层：状态先搬进实例（候选 1、2 之前那一轮），场景帧再整块搬出去（候选 3），
  * 现在**实例本身**也搬走了（候选 4）——门面手上拿的是一个 {@link PackRuntime}，而"什么都没装"从
  * {@code instance == null} 变成了一个实现了同一张表的适配器 {@link NotInstalledPackRuntime}。
  * <p>
- * 于是这个类只剩两种东西：
- * <ul>
- *    <li>34 个一行转发（名字与方法名一一对应，见 {@link PackRuntime}）；</li>
- *    <li>2 个纯静态判断——{@link #selected} 与 {@link #isNative}，它们只碰文件系统，不需要任何实例。</li>
- * </ul>
+ * 于是这个类只剩一样东西：**一行转发**（名字与方法名一一对应，见 {@link PackRuntime}）。
+ * 它原先还挂着两个纯静态判断，现在都回到各自拥有那条规则的模块去了——文件系统那条在
+ * {@link PackFiles#isNative}，"选中的包还成立吗"那条在 {@link InstalledPackRuntime#selected}。
+ * 门面不再导出任何文件系统判断。
+ * <p>
  * "装好"与"没装"分别由 {@link InstalledPackRuntime} 与 {@link NotInstalledPackRuntime} 提供，
  * 所以"缺席时到底答什么"有一处可读、一处可测，而不是散在 15 个 {@code runtime == null} 分支里。
  * <p>
- * <b>门面里那 37 个方法名是 mixin 能摸到的全部接口，不得改名。</b>
+ * <b>门面里那 35 个方法名是 mixin 能摸到的全部接口，不得改名。</b>
  * mixin 由游戏实例化，只能访问静态成员；改名不会有任何编译错误，只会在运行时静默失效。
  * <p>
  * {@link #install} 由 {@code CompositionRoot} 调用，而**不是**由
@@ -111,64 +107,6 @@ public final class NativePackRuntime {
    /** 渲染器上一次失败的描述，从未失败时为 {@code null}。 */
    public static String failure() {
       return current.failure();
-   }
-
-   /**
-    * 这个包 id 指向的目录/压缩包确实是一个原生包。纯文件系统判断——只认路径，不认实例，
-    * 所以包目录是**参数**：它来自端口的 {@code packsRoot()}，而这里不自己去问"包在哪"。
-    */
-   public static boolean selected(ShaderConfig config, Path packsRoot) {
-      return "__builtin__".equals(config.selectedPackId())
-            || config.selectedPackId() != null
-                  && PackFiles.safe(config.selectedPackId())
-                  && !config.selectedPackId().contains("/")
-                  && !"__builtin__".equals(config.selectedPackId())
-                  && isNative(packsRoot.resolve(config.selectedPackId()));
-   }
-
-   /** 这个路径是否是一个原生光影包（目录或压缩包里恰好有一份 caldera.json）。纯文件系统判断。 */
-   public static boolean isNative(Path path) {
-      try {
-         if (Files.isDirectory(path)) {
-            Stream<Path> files = Files.walk(path, 2);
-
-            boolean var10;
-            try {
-               var10 = files.anyMatch((p) -> p.getFileName().toString().equals("caldera.json") && Files.isRegularFile(p));
-            } catch (Throwable var7) {
-               try {
-                  files.close();
-               } catch (Throwable var5) {
-                  var7.addSuppressed(var5);
-               }
-
-               throw var7;
-            }
-
-            files.close();
-            return var10;
-         } else {
-            ZipFile zip = new ZipFile(path.toFile());
-
-            boolean var2;
-            try {
-               var2 = zip.stream().anyMatch((e) -> !e.isDirectory() && (e.getName().equals("caldera.json") || e.getName().matches("[^/]+/caldera\\.json")));
-            } catch (Throwable var6) {
-               try {
-                  zip.close();
-               } catch (Throwable var4) {
-                  var6.addSuppressed(var4);
-               }
-
-               throw var6;
-            }
-
-            zip.close();
-            return var2;
-         }
-      } catch (IOException var8) {
-         return false;
-      }
    }
 
    // ---------------------------------------------------------------- 场景帧

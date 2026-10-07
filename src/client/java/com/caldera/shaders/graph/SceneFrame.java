@@ -7,7 +7,6 @@ import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.caldera.shaders.config.ShaderConfig;
-import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
 import com.caldera.shaders.runtime.ShaderHost;
 import java.util.List;
@@ -33,9 +32,14 @@ import org.joml.Vector4fc;
  * 纯谓词版的接口会几乎等于实现，那正是要消灭的形状。
  * <p>
  * <b>它持有"这一帧在用哪个渲染器"</b>（{@link #attach}/{@link #detach}），因为六个门闸里都有
- * {@code active != null} 这一项。渲染器的**生命周期政策**（prepare、activate、close、包选项、
+ * "有没有生效的渲染器"这一项。渲染器的**生命周期政策**（prepare、activate、close、包选项、
  * 失败文案的持久化时机）仍在 {@code NativePackRuntime}：它决定什么时候换上/换下，
  * 这里只负责"换掉之后把旧的怎么退役"（{@link Disposal}）与"换上去之后这一帧怎么答门闸"。
+ * <p>
+ * <b>那个"有没有"不再是一个字段比较。</b>渲染器手上拿的是 {@link ActiveRenderer}，**永不为 null**：
+ * 缺席是 {@link AbsentRenderer#INSTANCE} 这个实现了同一张表的适配器。所以这里没有
+ * {@code renderer == null} 这样的分支，只有 {@link ActiveRenderer#present()} 那一问；
+ * 缺席时每个查询答什么，写在那个适配器里，而不是散在这个类的二十处。
  * <p>
  * <b>三个协作者都是注入的，不是静态伸手：</b>{@code resourceReloading}（"资源重载中"）、
  * {@code shadowPassActive}（"正在画阴影贴图"）、{@code config}（本帧生效的设置）。
@@ -52,13 +56,17 @@ final class SceneFrame {
    private final Supplier<ShaderConfig> config;
    private final BooleanSupplier resourceReloading;
    private final BooleanSupplier shadowPassActive;
+   private final BooleanSupplier shadowResourcesReady;
 
    /**
-    * 当前生效的渲染器，没有时为 {@code null}。
+    * 这一帧生效的渲染器。**永不为 null**——没有生效的渲染器是 {@link AbsentRenderer#INSTANCE}，
+    * 不是一个缺失的字段。
     * <p>
-    * 六个门闸读它；{@code NativePackRuntime} 通过 {@link #attach}/{@link #detach} 改它。
+    * 它由 {@link InstalledPackRuntime} 经 {@link #attach} 换上／换下。六个门闸原先逐处写
+    * {@code renderer != null}，其中三处读法还不一样；现在那一问只在本接口的
+    * {@link ActiveRenderer#present()} 里回答一次，门闸只问自己关心的条件。
     */
-   private GraphRenderer renderer;
+   private ActiveRenderer renderer = AbsentRenderer.INSTANCE;
    /** {@link #renderer} 对应的包 id；没有渲染器时为 {@code null}。 */
    private String rendererPackId;
    /** 渲染器上一次失败的描述，从未失败时为 {@code null}。 */
@@ -93,11 +101,30 @@ final class SceneFrame {
    /** 地形几何是否待重建。 */
    private boolean geometryRebuildPending;
 
-   SceneFrame(ShaderHost host, Supplier<ShaderConfig> config, BooleanSupplier resourceReloading, BooleanSupplier shadowPassActive) {
+   /**
+    * 四个协作者都是**注入**的，没有一个静态伸手：
+    * <ul>
+    *    <li>{@code resourceReloading} —— "我们自己的那次资源重载还没结束"；</li>
+    *    <li>{@code shadowPassActive} —— "正在画阴影贴图"（{@code ShadowPassScope::active}）；</li>
+    *    <li>{@code shadowResourcesReady} —— "本帧的阴影生产者已经跑过、资源就绪"；</li>
+    *    <li>{@code config} —— 本帧生效的设置。</li>
+    * </ul>
+    * 迁移前它们分别是 {@code ShaderRuntime.resourceReloading()}、
+    * {@code DirectionalShadowRenderer.isRenderingShadowMap()}、{@code DirectionalShadowRenderer.get().resourcesReady()}
+    * 与 {@code ShaderRuntime.config()} 的直接静态调用（前两者当初还是同一个类的两个静态字段）。
+    * 注入之后这个模块可以完全脱离那三个单例被驱动——这正是它能在纯 JVM 里逐格钉死的原因。
+    * <p>
+    * {@code shadowResourcesReady} 是最后一个搬进来的：它原先写在 {@link #scenePipeline} 里，
+    * 一边读 {@code DirectionalShadowRenderer} 的单例、一边把那个类型拖进 graph 包。它答的是
+    * "阴影生产跑了没"，而那是 shadow 侧的事实；这里只需要一个是非题，所以形状就是
+    * {@code BooleanSupplier}。
+    */
+   SceneFrame(ShaderHost host, Supplier<ShaderConfig> config, BooleanSupplier resourceReloading, BooleanSupplier shadowPassActive, BooleanSupplier shadowResourcesReady) {
       this.host = host;
       this.config = config;
       this.resourceReloading = resourceReloading;
       this.shadowPassActive = shadowPassActive;
+      this.shadowResourcesReady = shadowResourcesReady;
    }
 
    // ---------------------------------------------------------------- 渲染器的接入与退役
@@ -108,11 +135,11 @@ final class SceneFrame {
     * 清失败这件事原本在 {@code activateRenderer} 里、换渲染器之前：那时序在这里没有可观测差别
     * （两次调用之间没有任何东西读它），所以并成一条。
     */
-   void attach(GraphRenderer next, String packId) {
+   void attach(ActiveRenderer next, String packId) {
       this.sceneFailure = null;
       this.failure = null;
       this.renderer = next;
-      this.rendererPackId = next == null ? null : packId;
+      this.rendererPackId = next.present() ? packId : null;
    }
 
    /**
@@ -130,14 +157,15 @@ final class SceneFrame {
     *        {@code closeActive} 是同步关。这个分歧是原件就有的，这里把它变成一个看得见的参数。</li>
     * </ul>
     *
-    * @return 被摘下来的那个渲染器，没有就是 {@code null}（调用方还要用它算"要不要重建几何"）
+    * @return 被摘下来的那一个，**永不为 null**（没有生效的渲染器时是 {@link AbsentRenderer#INSTANCE}）。
+    *       调用方要用它算"要不要重建几何"，所以要问 {@link ActiveRenderer#present()} 而不是比 {@code null}。
     */
-   GraphRenderer detach(Disposal disposal) {
-      GraphRenderer old = this.renderer;
-      this.renderer = null;
+   ActiveRenderer detach(Disposal disposal) {
+      ActiveRenderer old = this.renderer;
+      this.renderer = AbsentRenderer.INSTANCE;
       this.rendererPackId = null;
 
-      if (old != null) {
+      if (old.present()) {
          if (disposal == Disposal.QUEUED) {
             this.host.queueFence(old::close);
          } else {
@@ -165,8 +193,10 @@ final class SceneFrame {
    void pause(Exception problem) {
       this.failure = "Shader pack paused: " + problem.getMessage();
       LogUtils.getLogger().error(this.failure, problem);
-      GraphRenderer old = this.detach(Disposal.QUEUED);
-      if (old != null && old.materials().enabled()) {
+      ActiveRenderer old = this.detach(Disposal.QUEUED);
+      // materials() 允许为 null 是既有契约（构造器后半段才赋值，见 ActiveRenderer#materials），
+      // 所以这里的守卫保留；它只是从"没有渲染器"变成了"渲染器或它的材质表还不存在"。
+      if (old.materials() != null && old.materials().enabled()) {
          this.geometryRebuildPending = true;
       }
    }
@@ -199,7 +229,7 @@ final class SceneFrame {
    private boolean canDraw() {
       return this.sceneActive
             && this.camera != null
-            && this.renderer != null
+            && this.renderer.present()
             && this.sceneFailure == null
             && !this.resourceReloading.getAsBoolean();
    }
@@ -226,7 +256,7 @@ final class SceneFrame {
    private boolean canAttachScene() {
       return !this.shadowPassActive.getAsBoolean()
             && this.sceneActive
-            && this.renderer != null
+            && this.renderer.present()
             && !this.resourceReloading.getAsBoolean();
    }
 
@@ -257,7 +287,7 @@ final class SceneFrame {
    }
 
    void captureHandProjection(Matrix4fc projection) {
-      if (this.sceneActive && this.renderer != null) {
+      if (this.sceneActive && this.renderer.present()) {
          this.renderer.handProjection(projection);
       }
    }
@@ -278,7 +308,7 @@ final class SceneFrame {
          // mixin 的注入顺序里，读代码看不出来。
          this.sceneActive = true;
          this.sceneBegun = true;
-         if (this.renderer != null) {
+         if (this.renderer.present()) {
             try {
                this.renderer.projection(this.worldProjection);
                this.renderer.environment(state, this.host.level(), partialTick);
@@ -292,7 +322,7 @@ final class SceneFrame {
          this.sceneBegun = false;
          this.camera = null;
          this.view = null;
-         if (this.renderer != null) {
+         if (this.renderer.present()) {
             this.renderer.invalidateHistory();
          }
       }
@@ -339,7 +369,7 @@ final class SceneFrame {
     * 最后一项是"用户刚换了包、新渲染器还没激活"那一帧的守卫。
     */
    boolean render(ShaderConfig config, CameraRenderState camera, Matrix4fc view) {
-      if (this.backendReady(config) && this.renderer != null && config.selectedPackId().equals(this.rendererPackId)) {
+      if (this.backendReady(config) && this.renderer.present() && config.selectedPackId().equals(this.rendererPackId)) {
          try {
             this.renderer.render(this.host.mainRenderTarget(), camera, view, this.host.level());
          } catch (Exception problem) {
@@ -382,11 +412,11 @@ final class SceneFrame {
    }
 
    HeldLightShadowRenderer heldShadows() {
-      return this.shadowFrameReady() && this.renderer != null ? this.renderer.heldShadows() : null;
+      return this.shadowFrameReady() ? this.renderer.heldShadows() : null;
    }
 
    boolean usesNativeTransparency() {
-      return this.renderer != null && !this.resourceReloading.getAsBoolean();
+      return this.renderer.present() && !this.resourceReloading.getAsBoolean();
    }
 
    /**
@@ -467,9 +497,12 @@ final class SceneFrame {
       try {
          RenderPipeline replacement = this.renderer.scenePipeline(base, targets);
          // 阴影生产者必须在本帧的地形之前跑过：级联没画就直接采，画面是错的，而错法不会抛异常。
-         // 这条查询仍然直接伸手 DirectionalShadowRenderer 的单例——它要的是"资源就绪没有"，
-         // 属于候选 2（阴影关卡作用域）的范围，不在本次改动内。
-         if (ScenePrograms.isReplacement(replacement) && this.renderer.shadowQuality() > 0 && !DirectionalShadowRenderer.get().resourcesReady()) {
+         // 这一问由 shadow 侧回答（见构造函数里那第四个协作者），这里不再伸手它的单例。
+         //
+         // 三个合取项的顺序是**刻意的**：缺席渲染器的 shadowQuality() 是 0，所以"资源就绪没有"
+         // 在那种情况下不会被求值——缺席路径不该去问阴影。注意这是可读性上的选择，不是能观测到的
+         // 行为差异（两种顺序下结论相同），所以这里没有为它写测试。
+         if (ScenePrograms.isReplacement(replacement) && this.renderer.shadowQuality() > 0 && !this.shadowResourcesReady.getAsBoolean()) {
             throw new IllegalStateException("Shadow producer did not run before native terrain");
          }
 
@@ -488,7 +521,7 @@ final class SceneFrame {
     * 行为，收紧它会改变重载那一帧的画面。里面的分支自己认得"这条管线不是我替换的"。
     */
    void bindSceneUniforms(RenderPass pass, RenderPipeline pipeline) {
-      if (this.sceneActive && this.renderer != null) {
+      if (this.sceneActive && this.renderer.present()) {
          this.renderer.bindSceneUniforms(pass, pipeline);
       }
    }
@@ -500,7 +533,7 @@ final class SceneFrame {
     * {@code true}；任何一项不成立就落到 {@code false}。
     */
    boolean replacesEnvironment(boolean clouds) {
-      if (this.renderer != null && this.shadowFrameReady() && !this.resourceReloading.getAsBoolean() && this.host.inOverworld()) {
+      if (this.renderer.present() && this.shadowFrameReady() && !this.resourceReloading.getAsBoolean() && this.host.inOverworld()) {
          if (clouds) {
             return this.renderer.environment().clouds();
          }
@@ -513,36 +546,31 @@ final class SceneFrame {
 
    // ---------------------------------------------------------------- 渲染器查询
 
-   /** 当前生效的渲染器；没有时 {@code null}。生命周期与包选项那一侧也要读它。 */
-   GraphRenderer renderer() {
-      return this.renderer;
-   }
-
    boolean animatedShadowCasters() {
-      return this.renderer != null && this.renderer.animatedShadowCasters();
+      return this.renderer.present() && this.renderer.animatedShadowCasters();
    }
 
    MaterialTable materials() {
-      return this.renderer == null ? null : this.renderer.materials();
+      return this.renderer.materials();
    }
 
    long terrainCaptures() {
-      return this.renderer == null ? 0L : this.renderer.terrainCaptures();
+      return this.renderer.terrainCaptures();
    }
 
    long renderedFrames() {
-      return this.renderer == null ? 0L : this.renderer.renderedFrames();
+      return this.renderer.renderedFrames();
    }
 
    long sceneReplacementCount() {
-      return this.renderer == null ? 0L : this.renderer.sceneReplacementCount();
+      return this.renderer.sceneReplacementCount();
    }
 
    int shadowQuality() {
-      return this.renderer == null ? 0 : this.renderer.shadowQuality();
+      return this.renderer.shadowQuality();
    }
 
    int shadowDistance() {
-      return this.renderer == null ? 128 : this.renderer.shadowDistance();
+      return this.renderer.shadowDistance();
    }
 }

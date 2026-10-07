@@ -20,9 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *    <li>{@code ShaderRuntime} —— {@code init()} 会读这份 host，于是在它身上留下事件；</li>
  *    <li>{@code NativePackRuntime} —— 装好之后它的顺序强制是**真的**：未安装时 {@code scope(true)}
  *        是空操作（见 {@code NativePackRuntimeLifecycleTest}），装好之后连开两次会抛；</li>
- *    <li>{@code DirectionalShadowRenderer} —— 它的 host 只在"阴影真的启用"时才被触及
- *        （{@code requireHost()} 在 {@code prepare()} 的就绪分支里），而启用需要真的渲染器，
- *        所以在纯 JVM 里观测不到。它由装配根本身保证：那一行与另外两行在同一个方法里。</li>
+ *    <li>{@code DirectionalShadowRenderer} —— 它现在**从构造参数拿依赖**（见 {@code install} 的签名），
+ *        不再有一个静态 host 字段；但那两条依赖都只在"阴影真的启用"时才被触及，而启用需要真的
+ *        渲染器，所以在纯 JVM 里仍然观测不到。它由装配根本身保证：那一行与另外两行在同一个方法里，
+ *        而且顺序是承重的（{@code animatedCasters} 是 {@code NativePackRuntime} 的一条查询）。</li>
  * </ul>
  * 这个用例刻意不复原全局状态：门面是进程级的，而每一个关心"缺席"的用例都自己先 {@code uninstall}
  * （见两个生命周期测试的 {@code @BeforeEach}），所以这里留着装好的状态不构成干扰。

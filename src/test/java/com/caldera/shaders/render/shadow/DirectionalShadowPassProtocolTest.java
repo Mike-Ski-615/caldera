@@ -287,7 +287,7 @@ class DirectionalShadowPassProtocolTest {
 
       // -------- Device
 
-      public void prepare(LevelRenderState levelState) {
+      public void prepare(LevelRenderState levelState, float packDistance) {
          this.calls.add("prepare");
          if (this.prepareFailure != null) {
             throw this.prepareFailure;
@@ -338,6 +338,10 @@ class DirectionalShadowPassProtocolTest {
 
       public LevelRenderState levelState() {
          return null;
+      }
+
+      public float packDistance() {
+         return 128.0F;
       }
 
       public CommandEncoder encoder() {
