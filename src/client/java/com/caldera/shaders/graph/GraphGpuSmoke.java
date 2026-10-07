@@ -303,7 +303,9 @@ public final class GraphGpuSmoke {
          if (server != null && server.getWorldData().getLevelName().equals("Caldera QA")) {
             server.execute(() -> {
                Commands commands = server.getCommands();
-               CommandSourceStack source = server.createCommandSourceStack();
+               CommandSourceStack source = server.createCommandSourceStack().withSuppressedOutput();
+               // withSuppressedOutput()：截图门禁比的是画面，而命令回显会盖在画面左下角。
+               // 关 gamerule 没用——来源是服务端控制台，它的回显本来就会广播给所有玩家。
                commands.performPrefixedCommand(source, "weather clear");
                commands.performPrefixedCommand(source, "time set " + (preset.equals("night") ? "18000" : "6000"));
                commands.performPrefixedCommand(source, "gamemode spectator @a");

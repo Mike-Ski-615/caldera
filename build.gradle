@@ -10,6 +10,34 @@ base {
 	archivesName = "caldera"
 }
 
+// 截图门禁用的五个开关：它们都是**客户端 JVM** 的系统属性（Boolean.getBoolean / getProperty），
+// 而 Gradle 不会把守护进程的 -D 转发给 runClient，所以下面显式接上。
+//
+// 跑法（每次都要先重建那个一次性世界，否则天气/时间/玩家位置会从上一次带过来）：
+//   python scripts/make-qa-world.py
+//   ./gradlew runClient -Pcaldera.worldSmoke=true -Pcaldera.demoScene=land \
+//       -Pcaldera.worldSmokeImage=build/smoke/after.png \
+//       -Pcaldera.quickPlayWorld=CalderaQA -Pcaldera.clientUsername=GateRunner
+// 世界必须叫 "Caldera QA"（level.dat 里的显示名，不是目录名）：demoScene 会往它里面发命令
+// （改时间/天气/旁观），所以它得是一次性世界。scripts/make-qa-world.py 负责把它造出来。
+// 全程无人值守：quick-play 直接进世界，跑满帧数截图，然后客户端自己退出。
+//
+// 门禁的读法（实测，别照直觉读）：
+//   同一个构建跑两次，画面差异可以到 mean 4.4/255；偶尔会出现一次明显偏灰的跑（mean 11.7，
+//   同构建之间也一样）。所以**单张 before/after 对比会骗人**——曾有一次同构建差异
+//   （11.7）比跨构建差异（13.5）还接近，唯一能站住的做法是每个构建跑 ≥2 次、比分布。
+//   它能可靠抓到的是"崩了/包被暂停了/什么都没画"（CALDERA_WORLD_SMOKE_FAIL 或
+//   scenePipelines=0），抓不到细微的着色漂移——那需要每个构建 ≥3 次采样。
+//   之所以不能像素级对齐：wind 相位取自 System.nanoTime()，云与水面按世界时间走，
+//   而截图发生在"第 120 帧"而不是"第 120 tick"，所以每跑一次的动画相位都不同。
+def calderaSmokeProperties = [
+	"caldera.worldSmoke",
+	"caldera.worldSmokeReload",
+	"caldera.worldSmokeFrames",
+	"caldera.worldSmokeImage",
+	"caldera.demoScene",
+]
+
 loom {
 	splitEnvironmentSourceSets()
 
@@ -17,6 +45,28 @@ loom {
 		"caldera" {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
+		}
+	}
+
+	runs {
+		client {
+			calderaSmokeProperties.each { key ->
+				if (project.hasProperty(key)) {
+					property(key, project.property(key).toString())
+				}
+			}
+			// 让客户端直接进世界，省掉"点标题屏进存档"这一步（否则门禁没法无人值守地跑）。
+			// 传 directory 名，不是 level.dat 里的显示名。
+			if (project.hasProperty("caldera.quickPlayWorld")) {
+				programArg "--quickPlaySingleplayer"
+				programArg project.property("caldera.quickPlayWorld").toString()
+			}
+			// 固定玩家名，否则每跑一次都是新 UUID、新 playerdata，登录位置就跟着漂，
+			// demoScene 那个相对传送（~ ~6 ~）拍出来的机位自然也不一样。
+			if (project.hasProperty("caldera.clientUsername")) {
+				programArg "--username"
+				programArg project.property("caldera.clientUsername").toString()
+			}
 		}
 	}
 }
