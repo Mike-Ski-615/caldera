@@ -44,27 +44,9 @@ public final class SodiumShadowTerrainRenderer {
     */
    private static final float PLAN_DIRECTION_DOT = 0.9925F;
    private static final CascadePlan[] CACHED_PLANS = new CascadePlan[4];
-   private static TerrainRenderPass[] preparingPasses;
-   private static TerrainRenderPass[] drawingPasses;
    /** 缓存的 render-list plan 跨资源重载存活，释放动作在定义处登记一次。见 {@link ReloadableResources}。 */
    private static final ReloadableResources.Owner RELOADABLE =
          ReloadableResources.owner("sodium shadow terrain plans", SodiumShadowTerrainRenderer::close);
-
-   public static TerrainRenderPass[] preparingPasses() {
-      return preparingPasses;
-   }
-
-   public static int shadowPassIndex(TerrainRenderPass pass) {
-      if (drawingPasses != null) {
-         for(int i = 0; i < drawingPasses.length; ++i) {
-            if (drawingPasses[i] == pass) {
-               return i;
-            }
-         }
-      }
-
-      return -1;
-   }
 
    private SodiumShadowTerrainRenderer() {
    }
@@ -134,11 +116,10 @@ public final class SodiumShadowTerrainRenderer {
       boolean[] savedFlags = (boolean[])flags.clone();
 
       try {
-         preparingPasses = passes;
-         drawingPasses = passes;
+         ShadowPassScope.enterSodiumBatch(passes);
          renderer.prepare(renderLists, new CameraTransform(cameraX, cameraY, cameraZ), false);
-         preparingPasses = null;
-         RenderTarget target = DirectionalShadowRenderer.get().activeTarget();
+         ShadowPassScope.markBatchPrepared();
+         RenderTarget target = ShadowPassScope.target();
          RenderPass renderPass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(() -> "Caldera shadow terrain", target.getColorTextureView(), Optional.empty(), target.getDepthTextureView(), OptionalDouble.empty());
 
          try {
@@ -161,8 +142,7 @@ public final class SodiumShadowTerrainRenderer {
             renderPass.close();
          }
       } finally {
-         preparingPasses = null;
-         drawingPasses = null;
+         ShadowPassScope.exitSodiumBatch();
          System.arraycopy(savedFlags, 0, flags, 0, flags.length);
       }
 

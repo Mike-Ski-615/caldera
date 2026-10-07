@@ -19,6 +19,7 @@ import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.render.shadow.DirectionalShadowSubmitFilter;
 import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
 import com.caldera.shaders.render.shadow.ShadowService;
+import com.caldera.shaders.render.shadow.ShadowPassScope;
 import com.caldera.shaders.render.shadow.SodiumShadowTerrainRenderer;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
@@ -258,7 +259,7 @@ public abstract class LevelRendererShadowMixin {
 
    @Unique
    private void caldera$renderShadowEntityFrame(FeatureRenderDispatcher.PreparedFrame frame) {
-      RenderTarget target = DirectionalShadowRenderer.get().activeTarget();
+      RenderTarget target = ShadowPassScope.target();
       RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(() -> "Caldera shadow entities", target.getColorTextureView(), Optional.empty(), target.getDepthTextureView(), OptionalDouble.empty());
 
       try {

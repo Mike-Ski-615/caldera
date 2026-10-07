@@ -3,7 +3,7 @@ package com.caldera.shaders.mixin.sodium;
 import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.renderpearl.api.textures.GpuSampler;
 import com.caldera.shaders.graph.NativePackRuntime;
-import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
+import com.caldera.shaders.render.shadow.ShadowPassScope;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import net.caffeinemc.mods.sodium.client.render.SodiumWorldRenderer;
 import net.caffeinemc.mods.sodium.client.render.chunk.ChunkRenderMatrices;
@@ -24,7 +24,7 @@ public abstract class SodiumWorldRendererMixin {
       at = {@At("HEAD")}
    )
    private void caldera$captureSceneBeforeSodiumTranslucent(RenderPass renderPass, ChunkSectionLayerGroup group, ChunkRenderMatrices matrices, double cameraX, double cameraY, double cameraZ, GpuSampler sampler, OitStage stage, CallbackInfo ci) {
-      if (group == ChunkSectionLayerGroup.TRANSLUCENT && !ShaderRuntime.resourceReloading() && !DirectionalShadowRenderer.isRenderingShadowMap()) {
+      if (group == ChunkSectionLayerGroup.TRANSLUCENT && !ShaderRuntime.resourceReloading() && !ShadowPassScope.active()) {
          NativePackRuntime.captureTerrain();
       }
    }
@@ -34,7 +34,7 @@ public abstract class SodiumWorldRendererMixin {
       at = {@At("RETURN")}
    )
    private void caldera$captureTranslucentDepth(RenderPass renderPass, ChunkSectionLayerGroup group, ChunkRenderMatrices matrices, double x, double y, double z, GpuSampler sampler, OitStage stage, CallbackInfo ci) {
-      if (group == ChunkSectionLayerGroup.TRANSLUCENT && !DirectionalShadowRenderer.isRenderingShadowMap()) {
+      if (group == ChunkSectionLayerGroup.TRANSLUCENT && !ShadowPassScope.active()) {
          NativePackRuntime.captureTranslucentDepth();
       }
 

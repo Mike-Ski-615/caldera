@@ -32,14 +32,13 @@ import org.joml.Vector4f;
  * 拆分的动机与 ADR-0003 一致：那套决策原先与 {@code RenderSystem}、{@code Minecraft} 混在一起，
  * 于是"第二帧会不会重画级联 1"这类问题无法在纯 JVM 里验证，而它错了只会安静地少画影子。
  * <p>
- * {@code beginCascade}/{@code endCascade} 那套重入协议**不在**本次改动范围内，原样保留。
+ * {@code beginCascade}/{@code endCascade} 那套配对已经搬进 {@link ShadowPassScope}：状态在那里，
+ * 配对由它强制，这里只剩"进入时把要画进去的目标与要用的级联 UBO 解析出来"。
  */
 public final class DirectionalShadowRenderer implements DirectionalShadowPass.Device {
    private static final int CASCADE_UBO_BYTES = 144;
    private static final int SHADOW_DATA_BYTES = 416;
    private static final Vector4f CLEAR = new Vector4f(1.0F, 1.0F, 1.0F, 1.0F);
-   private static final ThreadLocal<Integer> ACTIVE_CASCADE = ThreadLocal.withInitial(() -> -1);
-   private static final ThreadLocal<Boolean> ACTIVE_ENTITY_PASS = ThreadLocal.withInitial(() -> false);
    private static DirectionalShadowRenderer instance;
    /**
     * 游戏能力的来源，与 {@code NativePackRuntime}/{@code ShaderRuntime} 同一个 host 实例，
@@ -50,8 +49,6 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
     * {@code RenderSystem.getDevice().getDeviceInfo().limits()}。计划本身不许再去够这两处。
     */
    private static ShaderHost host;
-   private static RenderTarget localTarget;
-   private static GpuBufferSlice localUniforms;
    /**
     * 这几个 RenderTarget 跨资源重载存活（{@link #close()} 只拆纹理，不动计划状态），
     * 所以释放动作在这里登记一次。见 {@link ReloadableResources}。
@@ -82,21 +79,6 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
    private double cameraY;
    private double cameraZ;
 
-   /**
-    * 进入"手持光源"那一关：它与级联关卡共用同一个作用域标记。
-    * <p>
-    * 这几个作用域操作原先都是静态的。改成实例方法是为了让
-    * {@link DirectionalShadowPass.Device} 能表达它们——接口里的方法只能是实例方法，而
-    * {@code beginLocal()} 与 {@code endCascade()} 是配对的，所以一起改，不留一半静态一半实例。
-    * 它们动的那两个 {@code ThreadLocal} 仍然是静态的（进程级）；实例这边只是"当前那个阴影渲染器"
-    * 的入口，而 {@code get()} 是单例，所以两种写法在语义上没有区别。
-    */
-   public void beginLocal(RenderTarget target, GpuBufferSlice uniforms) {
-      ACTIVE_CASCADE.set(0);
-      localTarget = target;
-      localUniforms = uniforms;
-   }
-
    private DirectionalShadowRenderer() {
    }
 
@@ -125,32 +107,19 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
       return instance;
    }
 
-   public static boolean isRenderingShadowMap() {
-      return (Integer)ACTIVE_CASCADE.get() >= 0;
-   }
-
-   public static int activeCascade() {
-      return (Integer)ACTIVE_CASCADE.get();
-   }
-
    @Override
    public void beginCascade(int cascade) {
-      ACTIVE_CASCADE.set(cascade);
-      ACTIVE_ENTITY_PASS.set(false);
+      ShadowPassScope.enter(this.target(cascade), this.cascadeSlice);
    }
 
    @Override
    public void beginEntityCascade(int cascade) {
-      ACTIVE_CASCADE.set(cascade);
-      ACTIVE_ENTITY_PASS.set(true);
+      ShadowPassScope.enter(this.entityTarget(cascade), this.cascadeSlice);
    }
 
    @Override
    public void endCascade() {
-      ACTIVE_CASCADE.set(-1);
-      localTarget = null;
-      localUniforms = null;
-      ACTIVE_ENTITY_PASS.set(false);
+      ShadowPassScope.exit();
    }
 
    /**
@@ -291,14 +260,6 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
       return cascade >= 0 && cascade < 4 ? this.entityTargets[cascade] : null;
    }
 
-   public RenderTarget activeTarget() {
-      if (localTarget != null) {
-         return localTarget;
-      } else {
-         return (Boolean)ACTIVE_ENTITY_PASS.get() ? this.entityTarget(activeCascade()) : this.target(activeCascade());
-      }
-   }
-
    public boolean sectionIntersectsCascade(int cascade, int originX, int originY, int originZ) {
       return this.schedule.sectionIntersectsCascade(cascade, originX, originY, originZ, this.cameraX, this.cameraY, this.cameraZ);
    }
@@ -314,10 +275,6 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
       this.schedule.inverseViewRotation().get(this.cascadeUpload);
       this.cascadeUpload.rewind();
       this.cascadeSlice = encoder.transientMemory().uploadGpu(this.cascadeUpload, (long)RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment(), 128);
-   }
-
-   public GpuBufferSlice cascadeSlice() {
-      return localUniforms != null ? localUniforms : this.cascadeSlice;
    }
 
    @Override

@@ -94,9 +94,8 @@ public final class HeldLightShadowRenderer implements AutoCloseable {
 
    public void render(SodiumWorldRenderer sodium, CameraRenderState camera, GpuSampler sampler, Runnable entities) {
       if (this.active()) {
-         // 作用域标记住在 DirectionalShadowRenderer 上，而 beginLocal/endCascade 现在是实例方法。
-         // 这里是单例，且阴影关卡已经先跑过 get()，所以这一行不会新建实例。
-         DirectionalShadowRenderer shadows = DirectionalShadowRenderer.get();
+         // 手持光源那一关用的是同一个阴影关卡作用域（见 ShadowPassScope）：Sodium 那边"这条 pass
+         // 是不是阴影 pass"的问法对六张面同样成立，所以它不需要自己的一套标记。
          List<ChunkRenderList> lists = this.terrainLists(sodium);
          CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
          SodiumWorldRendererAccessor access = sodium == null ? null : (SodiumWorldRendererAccessor)sodium;
@@ -118,7 +117,7 @@ public final class HeldLightShadowRenderer implements AutoCloseable {
                GpuBufferSlice uniforms = encoder.transientMemory().uploadGpu(this.casterBytes, (long)RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment(), 128);
                RenderTarget target = this.targets[face];
                encoder.clearColorAndDepthTextures(target.getColorTexture(), new Vector4f(1.0F), target.getDepthTexture(), (double)1.0F);
-               shadows.beginLocal(target, uniforms);
+               ShadowPassScope.enter(target, uniforms);
 
                try {
                   if (access != null && access.caldera$renderSectionManager() != null && !lists.isEmpty()) {
@@ -136,7 +135,7 @@ public final class HeldLightShadowRenderer implements AutoCloseable {
 
                   entities.run();
                } finally {
-                  shadows.endCascade();
+                  ShadowPassScope.exit();
                }
             }
          } finally {

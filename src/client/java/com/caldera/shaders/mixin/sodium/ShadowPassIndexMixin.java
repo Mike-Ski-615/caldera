@@ -1,6 +1,6 @@
 package com.caldera.shaders.mixin.sodium;
 
-import com.caldera.shaders.render.shadow.SodiumShadowTerrainRenderer;
+import com.caldera.shaders.render.shadow.ShadowPassScope;
 import net.caffeinemc.mods.sodium.client.render.chunk.terrain.DefaultTerrainRenderPasses;
 import net.caffeinemc.mods.sodium.client.render.chunk.terrain.TerrainRenderPass;
 import org.spongepowered.asm.mixin.Mixin;
@@ -19,7 +19,7 @@ public abstract class ShadowPassIndexMixin {
       cancellable = true
    )
    private static void caldera$shadowPassIndex(TerrainRenderPass pass, CallbackInfoReturnable<Integer> ci) {
-      int index = SodiumShadowTerrainRenderer.shadowPassIndex(pass);
+      int index = ShadowPassScope.passIndex(pass);
       if (index >= 0) {
          ci.setReturnValue(index);
       }

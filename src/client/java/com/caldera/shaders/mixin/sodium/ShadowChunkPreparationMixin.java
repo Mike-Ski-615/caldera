@@ -4,8 +4,8 @@ import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.caldera.shaders.render.shadow.ShadowChunkState;
+import com.caldera.shaders.render.shadow.ShadowPassScope;
 import com.caldera.shaders.render.shadow.SodiumShadowTerrainPasses;
-import com.caldera.shaders.render.shadow.SodiumShadowTerrainRenderer;
 import net.caffeinemc.mods.sodium.client.gpu.device.batch.MultiDrawBatch;
 import net.caffeinemc.mods.sodium.client.render.chunk.DefaultChunkRenderer;
 import net.caffeinemc.mods.sodium.client.render.chunk.data.SectionRenderDataStorage;
@@ -40,7 +40,7 @@ public abstract class ShadowChunkPreparationMixin implements ShadowChunkState {
 )}
    )
    private TerrainRenderPass[] caldera$prepareShadowBatch(TerrainRenderPass[] original) {
-      TerrainRenderPass[] passes = SodiumShadowTerrainRenderer.preparingPasses();
+      TerrainRenderPass[] passes = ShadowPassScope.preparingPasses();
       return passes == null ? original : passes;
    }
 

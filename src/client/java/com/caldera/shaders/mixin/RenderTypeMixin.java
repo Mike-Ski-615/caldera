@@ -4,7 +4,7 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.caldera.shaders.render.shadow.DirectionalShadowPipelines;
-import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
+import com.caldera.shaders.render.shadow.ShadowPassScope;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import net.minecraft.client.renderer.StagedVertexBuffer;
 import net.minecraft.client.renderer.rendertype.PreparedRenderType;
@@ -21,7 +21,7 @@ public abstract class RenderTypeMixin {
       cancellable = true
    )
    private void caldera$drawEntityShadowCaster(StagedVertexBuffer.ExecuteInfo info, RenderPass pass, RenderPipeline pipeline, CallbackInfo ci) {
-      if (!ShaderRuntime.resourceReloading() && DirectionalShadowRenderer.isRenderingShadowMap()) {
+      if (!ShaderRuntime.resourceReloading() && ShadowPassScope.active()) {
          PreparedRenderType prepared = (PreparedRenderType)(Object)this;
          RenderPipeline caster = DirectionalShadowPipelines.entityDepthPipeline(pipeline);
          ci.cancel();
@@ -29,7 +29,7 @@ public abstract class RenderTypeMixin {
             pass.setPipeline(RenderSystem.getCompiledPipeline(caster));
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("DynamicTransforms", prepared.dynamicTransforms());
-            pass.setUniform("CalderaCascade", DirectionalShadowRenderer.get().cascadeSlice());
+            pass.setUniform("CalderaCascade", ShadowPassScope.uniforms());
             pass.setVertexBuffer(0, info.vertexBuffer().slice());
 
             for(PreparedRenderType.Texture texture : prepared.textures()) {

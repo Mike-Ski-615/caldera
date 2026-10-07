@@ -1,7 +1,7 @@
 package com.caldera.shaders.mixin.sodium;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
+import com.caldera.shaders.render.shadow.ShadowPassScope;
 import net.caffeinemc.mods.sodium.client.render.chunk.terrain.TerrainRenderPass;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -19,8 +19,8 @@ public abstract class TerrainRenderPassMixin {
       cancellable = true
    )
    private void caldera$useShadowTarget(CallbackInfoReturnable<RenderTarget> cir) {
-      if (DirectionalShadowRenderer.isRenderingShadowMap()) {
-         RenderTarget target = DirectionalShadowRenderer.get().activeTarget();
+      if (ShadowPassScope.active()) {
+         RenderTarget target = ShadowPassScope.target();
          if (target != null) {
             cir.setReturnValue(target);
          }

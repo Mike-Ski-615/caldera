@@ -2,7 +2,7 @@ package com.caldera.shaders.mixin.sodium;
 
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.vertex.VertexFormat;
-import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
+import com.caldera.shaders.render.shadow.ShadowPassScope;
 import com.caldera.shaders.render.shadow.SodiumTerrainShadowPipelines;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import java.util.IdentityHashMap;
@@ -41,7 +41,7 @@ public abstract class ShaderChunkRendererMixin {
    )
    private void caldera$useTerrainShadowPipeline(TerrainRenderPass pass, OitStage stage, CallbackInfoReturnable<RenderPipeline> cir) {
       if (!ShaderRuntime.resourceReloading()) {
-         if (DirectionalShadowRenderer.isRenderingShadowMap()) {
+         if (ShadowPassScope.active()) {
             cir.setReturnValue(SodiumTerrainShadowPipelines.caster(pass, this.vertexFormat));
          } else if (stage == null) {
             cir.setReturnValue((RenderPipeline)(Object)this.caldera$programs.computeIfAbsent(pass, (key) -> this.createShader("blocks/block_layer_opaque", key)));

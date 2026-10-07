@@ -12,6 +12,7 @@ import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
 import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
+import com.caldera.shaders.render.shadow.ShadowPassScope;
 import com.caldera.shaders.runtime.ShaderHost;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import java.io.IOException;
@@ -700,13 +701,13 @@ public final class NativePackRuntime {
    }
 
    private RenderPassDescriptor sceneAttachmentsNow(RenderPassDescriptor descriptor) {
-      return !DirectionalShadowRenderer.isRenderingShadowMap() && this.sceneActive && this.active != null && !ShaderRuntime.resourceReloading()
+      return !ShadowPassScope.active() && this.sceneActive && this.active != null && !ShaderRuntime.resourceReloading()
             ? this.active.sceneAttachments(descriptor, this.host.mainRenderTarget())
             : descriptor;
    }
 
    private RenderPipeline scenePipelineNow(RenderPipeline base, List<RenderPassDescriptor.Attachment<Optional<Vector4fc>>> attachments) {
-      if (!DirectionalShadowRenderer.isRenderingShadowMap() && this.sceneActive && this.active != null && !ShaderRuntime.resourceReloading()) {
+      if (!ShadowPassScope.active() && this.sceneActive && this.active != null && !ShaderRuntime.resourceReloading()) {
          boolean targets = this.active.hasSceneAttachments(attachments);
          if (this.sceneFailure != null) {
             return this.active.sceneFallback(base, targets);
