@@ -57,6 +57,13 @@
 - **ShaderHost 端口** — 光影运行时需要游戏提供的全部能力，用普通类型表达；生产实现是
   `MinecraftShaderHost`，测试实现是 `FakeShaderHost`。见 `docs/adr/0003`。
 - **PreparedRenderer 句柄** — 一份已准备好、可以被激活或被丢弃的渲染器。**永远不为 null**。
+- **装配根（composition root）** — `CompositionRoot.install(host)`：把同一份 `ShaderHost` 装进三个
+  需要它的模块（`ShaderRuntime`、`NativePackRuntime`、`DirectionalShadowRenderer`），客户端入口只调
+  这一句。`ReloadableResources` 与 `ShadowPassScope` 不需要安装。`ShaderRuntime.init()` 是"第一次
+  读盘"，与装配分开、必须在它之后。
+- **未安装适配器（not-installed adapter）** — 两个门面（`ShaderRuntime`、`NativePackRuntime`）各有
+  两张实现：装好的那一份（`Installed*`）与"什么都没装"的那一份（`NotInstalled*`）。门面手上永不为
+  null，所以"缺席时答什么"有一处可读、一处可测，而不是散在 21 个 null 分支里。
 - **门禁（screenshot gate）** — 五个 `caldera.*` 系统属性驱动的无人值守截图流程，承载它的 5 个
   smoke 类住在独立的 dev mod（`src/smoke`，id `caldera-dev`）里，不进 jar。跑法见 `build.gradle` 顶部。
 
