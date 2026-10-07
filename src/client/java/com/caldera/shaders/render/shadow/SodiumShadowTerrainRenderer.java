@@ -43,7 +43,6 @@ public final class SodiumShadowTerrainRenderer {
     */
    private static final float PLAN_DIRECTION_DOT = 0.9925F;
    private static final CascadePlan[] CACHED_PLANS = new CascadePlan[4];
-   private static long terrainRevision;
    private static TerrainRenderPass[] preparingPasses;
    private static TerrainRenderPass[] drawingPasses;
 
@@ -95,21 +94,14 @@ public final class SodiumShadowTerrainRenderer {
       }
    }
 
-   public static void markTerrainDirty() {
-      ++terrainRevision;
-   }
-
-   public static long terrainRevision() {
-      return terrainRevision;
-   }
-
    public static void close() {
       for(int cascade = 0; cascade < CACHED_PLANS.length; ++cascade) {
          clearPlanBatches(CACHED_PLANS[cascade], cascade);
          CACHED_PLANS[cascade] = null;
       }
 
-      ++terrainRevision;
+      // 地形修订号住在计划模块（CascadePlanner）里：读它的其实是计划。语义一字未改——这里自增一次。
+      CascadePlanner.markTerrainDirty();
    }
 
    private static CascadePlan planFor(Iterable<RenderRegion> regions, DirectionalShadowRenderer shadows, int cascade, double cameraX, double cameraY, double cameraZ) {
@@ -117,12 +109,12 @@ public final class SodiumShadowTerrainRenderer {
       long layoutVersion = shadows.cascadeLayoutVersion(cascade);
       Vector3f lightDirection = shadows.lightDirection(new Vector3f());
       Vector3f cameraForward = shadows.cameraForward(new Vector3f());
-      if (cached != null && cached.layoutVersion == layoutVersion && cached.matches(terrainRevision, cameraX, cameraY, cameraZ, lightDirection, cameraForward, shadows.cascadeEnd(cascade), PLAN_MOVEMENT_LIMITS[cascade])) {
+      if (cached != null && cached.layoutVersion == layoutVersion && cached.matches(CascadePlanner.terrainRevision(), cameraX, cameraY, cameraZ, lightDirection, cameraForward, shadows.cascadeEnd(cascade), PLAN_MOVEMENT_LIMITS[cascade])) {
          return cached;
       } else {
          boolean spatiallyReusable = cached != null && cached.layoutVersion == layoutVersion && cached.spatiallyMatches(cameraX, cameraY, cameraZ, lightDirection, cameraForward, shadows.cascadeEnd(cascade), PLAN_MOVEMENT_LIMITS[cascade]);
          PlanContents contents = buildRenderLists(regions, shadows, cascade, cached, spatiallyReusable);
-         CascadePlan next = new CascadePlan(contents.lists, new ShadowRenderLists(contents.lists), contents.regions, layoutVersion, terrainRevision, cameraX, cameraY, cameraZ, lightDirection, cameraForward, shadows.cascadeEnd(cascade));
+         CascadePlan next = new CascadePlan(contents.lists, new ShadowRenderLists(contents.lists), contents.regions, layoutVersion, CascadePlanner.terrainRevision(), cameraX, cameraY, cameraZ, lightDirection, cameraForward, shadows.cascadeEnd(cascade));
          clearChangedPlanBatches(cached, next, cascade);
          CACHED_PLANS[cascade] = next;
          return next;

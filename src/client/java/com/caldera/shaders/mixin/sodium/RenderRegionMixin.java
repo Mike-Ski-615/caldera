@@ -1,8 +1,8 @@
 package com.caldera.shaders.mixin.sodium;
 
+import com.caldera.shaders.render.shadow.CascadePlanner;
 import com.caldera.shaders.render.shadow.ShadowRegionState;
 import com.caldera.shaders.render.shadow.SodiumShadowTerrainPasses;
-import com.caldera.shaders.render.shadow.SodiumShadowTerrainRenderer;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import net.caffeinemc.mods.sodium.client.gpu.device.batch.MultiDrawBatch;
@@ -86,7 +86,7 @@ public abstract class RenderRegionMixin implements ShadowRegionState {
    private void caldera$markShadowPlansDirty(int sectionIndex, BuiltSectionInfo info, CallbackInfo ci) {
       this.caldera$clearShadowBatches();
       ++this.caldera$shadowRevision;
-      SodiumShadowTerrainRenderer.markTerrainDirty();
+      CascadePlanner.markTerrainDirty();
    }
 
    @Inject(
@@ -96,7 +96,7 @@ public abstract class RenderRegionMixin implements ShadowRegionState {
    private void caldera$markClearedShadowPlansDirty(int sectionIndex, CallbackInfo ci) {
       this.caldera$clearShadowBatches();
       ++this.caldera$shadowRevision;
-      SodiumShadowTerrainRenderer.markTerrainDirty();
+      CascadePlanner.markTerrainDirty();
    }
 
    @Inject(
@@ -112,7 +112,7 @@ public abstract class RenderRegionMixin implements ShadowRegionState {
       at = {@At("HEAD")}
    )
    private void caldera$deleteShadowBatches(CallbackInfo ci) {
-      SodiumShadowTerrainRenderer.markTerrainDirty();
+      CascadePlanner.markTerrainDirty();
 
       for(MultiDrawBatch batch : this.caldera$shadowBatches.values()) {
          batch.delete();

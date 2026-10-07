@@ -3,6 +3,7 @@ package com.caldera.shaders;
 import com.mojang.logging.LogUtils;
 import com.caldera.shaders.graph.GraphGpuSmoke;
 import com.caldera.shaders.graph.NativePackRuntime;
+import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.runtime.BackendStatus;
 import com.caldera.shaders.runtime.MinecraftShaderHost;
 import com.caldera.shaders.runtime.ShaderHost;
@@ -27,6 +28,9 @@ public final class CalderaShadersClient implements ClientModInitializer {
       // 帧生命周期与渲染器生命周期的实例。它装的是**同一个** host：
       // 由这里装而不是由 host 自己装，否则就成了 host → 静态门面 → instance → host 的构造期循环。
       NativePackRuntime.install(host);
+      // 阴影计划要用"有效渲染距离"与"设备纹理边长上限"。它原先直接够 Minecraft/RenderSystem，
+      // 现在同样走端口——装的还是同一个 host，理由与上面那条相同。
+      DirectionalShadowRenderer.install(host);
       ShaderRuntime.init();
       ClientLifecycleEvents.CLIENT_STARTED.register(client -> ShaderRuntime.bootstrap());
       ClientLifecycleEvents.CLIENT_STOPPING.register((ClientLifecycleEvents.ClientStopping)(client) -> ShaderRuntime.close());

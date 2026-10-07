@@ -7,77 +7,70 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.renderpearl.api.commands.CommandEncoder;
-import com.mojang.renderpearl.api.device.DeviceLimits;
 import com.caldera.shaders.config.ShaderQualityPreset;
 import com.caldera.shaders.graph.NativePackRuntime;
-import com.caldera.shaders.render.sky.CustomCelestials;
+import com.caldera.shaders.runtime.ShaderHost;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.state.level.LevelRenderState;
-import org.joml.Matrix4f;
+import net.minecraft.client.renderer.state.level.SkyRenderState;
 import org.joml.Matrix4fc;
 import org.joml.Vector3f;
+import org.joml.Vector3fc;
 import org.joml.Vector4f;
 
+/**
+ * 方向光阴影的 GPU 侧：RenderTarget 的分配与退役、UBO 上传、绑定。
+ * <p>
+ * <b>级联调度已经不在这里了。</b>哪几个级联这一帧要重画、每个级联画到哪里、用哪个矩阵，
+ * 全部由 {@link CascadePlanner} 决策、装在 {@link CascadeSchedule} 里。这个类只负责：
+ * 把游戏状态（相机、日月角、渲染距离、设备纹理上限、地形修订号）**作为参数**递给计划，
+ * 然后按计划的结果做 GPU 侧的事。
+ * <p>
+ * 拆分的动机与 ADR-0003 一致：那套决策原先与 {@code RenderSystem}、{@code Minecraft} 混在一起，
+ * 于是"第二帧会不会重画级联 1"这类问题无法在纯 JVM 里验证，而它错了只会安静地少画影子。
+ * <p>
+ * {@code beginCascade}/{@code endCascade} 那套重入协议**不在**本次改动范围内，原样保留。
+ */
 public final class DirectionalShadowRenderer {
-   /**
-    * 日月分离度超过这个区间就不再淡出影子（smoothstep 的两个边界）。
-    * <p>
-    * 这两个常量原先根本没被用上——L167 直接写了 0.02F/0.2F。有常量却用字面量比纯死代码更会骗人：
-    * 改常量的人会以为生效了，而什么也没发生。
-    */
-   private static final float CELESTIAL_FADE_START = 0.02F;
-   private static final float CELESTIAL_FADE_END = 0.2F;
-   private static final int[] CASCADE_UPDATE_INTERVALS = new int[]{3, 8, 16, 32};
-   private static final int[] ENTITY_UPDATE_INTERVALS = new int[]{1, 1, 1, 1};
-   private static final double[] CASCADE_MOVEMENT_LIMITS = new double[]{(double)1.5F, (double)4.0F, (double)12.0F, (double)24.0F};
    private static final int CASCADE_UBO_BYTES = 144;
    private static final int SHADOW_DATA_BYTES = 416;
    private static final Vector4f CLEAR = new Vector4f(1.0F, 1.0F, 1.0F, 1.0F);
    private static final ThreadLocal<Integer> ACTIVE_CASCADE = ThreadLocal.withInitial(() -> -1);
    private static final ThreadLocal<Boolean> ACTIVE_ENTITY_PASS = ThreadLocal.withInitial(() -> false);
    private static DirectionalShadowRenderer instance;
+   /**
+    * 游戏能力的来源，与 {@code NativePackRuntime}/{@code ShaderRuntime} 同一个 host 实例，
+    * 由 {@code CalderaShadersClient} 在客户端初始化时装上。
+    * <p>
+    * 这一条端口是本次改动加的：计划要用"有效渲染距离"和"设备纹理边长上限"，
+    * 而它们原先分别来自 {@code Minecraft.getInstance().options} 与
+    * {@code RenderSystem.getDevice().getDeviceInfo().limits()}。计划本身不许再去够这两处。
+    */
+   private static ShaderHost host;
    private static RenderTarget localTarget;
    private static GpuBufferSlice localUniforms;
    private final RenderTarget[] targets = new RenderTarget[4];
    private final RenderTarget[] entityTargets = new RenderTarget[4];
-   private final Matrix4f[] cascadeMatrices = new Matrix4f[4];
-   private final Matrix4f[] renderedCascadeMatrices = new Matrix4f[4];
-   private final Vector3f[] frustumCorners = new Vector3f[8];
-   private final Vector3f[] renderedLightDirections = new Vector3f[4];
-   private final Vector3f[] renderedCameraForwards = new Vector3f[4];
-   private final float[] cascadeEnds = new float[4];
-   private final float[] cascadeTexelWorldSizes = new float[4];
-   private final float[] cascadeDepthRanges = new float[4];
    private final int[] targetSizes = new int[4];
    private final int[] entityTargetSizes = new int[4];
-   private final boolean[] cascadeUpdates = new boolean[4];
-   private final boolean[] cascadeInitialized = new boolean[4];
-   private final long[] cascadeLayoutVersions = new long[4];
-   private final boolean[] entityCascadeUpdates = new boolean[4];
-   private final boolean[] entityCascadeInitialized = new boolean[4];
-   private final double[] renderedCameraX = new double[4];
-   private final double[] renderedCameraY = new double[4];
-   private final double[] renderedCameraZ = new double[4];
-   private final long[] renderedFrameSerial = new long[4];
-   private final long[] renderedTerrainRevision = new long[4];
-   private final long[] renderedEntityFrameSerial = new long[4];
    private final ByteBuffer cascadeUpload = ByteBuffer.allocateDirect(CASCADE_UBO_BYTES).order(ByteOrder.nativeOrder());
    private final ByteBuffer shadowUpload = ByteBuffer.allocateDirect(SHADOW_DATA_BYTES).order(ByteOrder.nativeOrder());
+   private final CascadePlanner planner = new CascadePlanner();
+   /**
+    * 本帧的计划。初值是"什么都没有"，与迁移前那些字段的初值一致。
+    * <p>
+    * 注意它**不在** {@link #close()} 里被清掉：那条不对称是迁移前就有的（见 {@code close()} 的注释）。
+    */
+   private CascadeSchedule schedule = CascadeSchedule.empty();
    private GpuBufferSlice cascadeSlice;
    private GpuBufferSlice shadowDataSlice;
-   private int activeCascadeCount;
-   private final Vector3f lightDirection = new Vector3f(0.0F, -1.0F, 0.0F);
-   private final Vector3f sunDirection = new Vector3f();
-   private final Vector3f moonDirection = new Vector3f();
-   private final Vector3f cameraForward = new Vector3f(0.0F, 0.0F, -1.0F);
-   private final Matrix4f inverseViewRotation = new Matrix4f();
-   private final Matrix4f lastProjection = (new Matrix4f()).zero();
-   private long frameSerial;
-   private float celestialShadowFade = 1.0F;
-   private float lastCoverage = -1.0F;
-   private int lastActiveCascadeCount = -1;
+   /**
+    * 本帧的相机位置，只给 {@link #sectionIntersectsCascade} 用。
+    * <p>
+    * 它必须活到本帧的 Sodium 渲染之后，所以存在实例上而不是随着 {@code prepare} 的局部变量消失。
+    */
    private double cameraX;
    private double cameraY;
    private double cameraZ;
@@ -89,17 +82,23 @@ public final class DirectionalShadowRenderer {
    }
 
    private DirectionalShadowRenderer() {
-      for(int i = 0; i < 4; ++i) {
-         this.cascadeMatrices[i] = new Matrix4f();
-         this.renderedCascadeMatrices[i] = new Matrix4f();
-         this.renderedLightDirections[i] = new Vector3f();
-         this.renderedCameraForwards[i] = new Vector3f();
+   }
+
+   /**
+    * 安装游戏能力端口。必须在第一次 {@link #prepare} 之前调用，由 {@code CalderaShadersClient} 与
+    * {@code NativePackRuntime.install()} 并排调用——装的是**同一个** host 实例。
+    */
+   public static void install(ShaderHost shaderHost) {
+      host = shaderHost;
+   }
+
+   private static ShaderHost requireHost() {
+      ShaderHost installed = host;
+      if (installed == null) {
+         throw new IllegalStateException("Caldera shadow renderer has no installed ShaderHost: DirectionalShadowRenderer.install() must run during client initialization");
       }
 
-      for(int i = 0; i < this.frustumCorners.length; ++i) {
-         this.frustumCorners[i] = new Vector3f();
-      }
-
+      return installed;
    }
 
    public static DirectionalShadowRenderer get() {
@@ -135,170 +134,105 @@ public final class DirectionalShadowRenderer {
       ACTIVE_ENTITY_PASS.set(false);
    }
 
+   /**
+    * 一帧的入口：收集输入 → 保证 GPU 资源 → 交给 {@link CascadePlanner} 决策 → 发布本帧的计划。
+    * <p>
+    * 顺序是行为的一部分，不能重排：{@code maxShadowSize} 必须先由设备上限求得，
+    * {@code ensureResources} 必须先用它做分配并把"资源变过没有"作为计划的一个输入，
+    * 计划才允许跑。反过来会让级联布局在资源重建的那一帧与纹理实际尺寸对不上。
+    */
    public void prepare(LevelRenderState levelRenderState) {
       ShaderQualityPreset quality = ShadowService.quality();
       if (quality.enabled() && levelRenderState != null && levelRenderState.cameraRenderState != null) {
-         byte var10000;
-         switch (quality) {
-            case LOW:
-               var10000 = 1;
-               break;
-            case MEDIUM:
-               var10000 = 3;
-               break;
-            case HIGH:
-            case ULTRA:
-               var10000 = 4;
-               break;
-            case OFF:
-               var10000 = 0;
-               break;
-            default:
-               throw new MatchException((String)null, (Throwable)null);
-         }
-
-         int nextActiveCascadeCount = var10000;
-         DeviceLimits limits = RenderSystem.getDevice().getDeviceInfo().limits();
-         int maxShadowSize = Math.min(limits.maxTextureSizeForFormat(GpuFormat.R8_UNORM), limits.maxTextureSizeForFormat(GpuFormat.D32_FLOAT));
-         boolean resourcesChanged = this.ensureResources(targetSizes(quality, maxShadowSize), quality, maxShadowSize);
-         this.activeCascadeCount = nextActiveCascadeCount;
-         ++this.frameSerial;
-         if (levelRenderState.skyRenderState != null) {
-            CustomCelestials.setCelestialDirection(levelRenderState.skyRenderState.sunAngle, this.sunDirection);
-            CustomCelestials.setCelestialDirection(levelRenderState.skyRenderState.moonAngle, this.moonDirection);
-            this.celestialShadowFade = smoothstep(CELESTIAL_FADE_START, CELESTIAL_FADE_END, Math.abs(this.sunDirection.y - this.moonDirection.y));
-            this.lightDirection.set(this.sunDirection.y >= this.moonDirection.y ? this.sunDirection : this.moonDirection);
-            if (this.lightDirection.y < 0.08F) {
-               this.lightDirection.y = 0.08F;
-            }
-
-            this.lightDirection.normalize();
-         } else {
-            this.lightDirection.set(-0.35F, 0.82F, -0.44F).normalize();
-            this.celestialShadowFade = 1.0F;
-         }
-
-         if (levelRenderState.cameraRenderState.viewRotationMatrix != null) {
-            this.inverseViewRotation.set(levelRenderState.cameraRenderState.viewRotationMatrix).invert();
-            this.cameraForward.set(0.0F, 0.0F, -1.0F);
-            this.inverseViewRotation.transformDirection(this.cameraForward).normalize();
-         } else {
-            this.inverseViewRotation.identity();
-            this.cameraForward.set(0.0F, 0.0F, -1.0F);
-         }
-
-         if (levelRenderState.cameraRenderState.pos != null) {
-            this.cameraX = levelRenderState.cameraRenderState.pos.x;
-            this.cameraY = levelRenderState.cameraRenderState.pos.y;
-            this.cameraZ = levelRenderState.cameraRenderState.pos.z;
+         ShaderHost installed = requireHost();
+         int maxShadowSize = Math.min(installed.maxTextureSizeForFormat(GpuFormat.R8_UNORM), installed.maxTextureSizeForFormat(GpuFormat.D32_FLOAT));
+         boolean resourcesChanged = this.ensureResources(CascadePlanner.targetSizes(quality, maxShadowSize), quality, maxShadowSize);
+         CameraRenderState camera = levelRenderState.cameraRenderState;
+         if (camera.pos != null) {
+            this.cameraX = camera.pos.x;
+            this.cameraY = camera.pos.y;
+            this.cameraZ = camera.pos.z;
          } else {
             this.cameraX = (double)0.0F;
             this.cameraY = (double)0.0F;
             this.cameraZ = (double)0.0F;
          }
 
-         float coverage = Math.min(ShadowService.distance(), Math.max(64.0F, (float)Minecraft.getInstance().options.getEffectiveRenderDistance() * 16.0F));
-         boolean layoutChanged = resourcesChanged || !this.lastProjection.equals(levelRenderState.cameraRenderState.projectionMatrix, 1.0E-4F) || this.lastActiveCascadeCount != this.activeCascadeCount || Math.abs(this.lastCoverage - coverage) > 0.5F;
-         this.lastProjection.set(levelRenderState.cameraRenderState.projectionMatrix);
-         this.lastActiveCascadeCount = this.activeCascadeCount;
-         this.lastCoverage = coverage;
-         float[] splits = splitDistances(coverage, this.activeCascadeCount);
-         Matrix4f inverseProjection = (new Matrix4f(levelRenderState.cameraRenderState.projectionMatrix)).invert();
-
-         for(int i = 0; i < 4; ++i) {
-            float end = i < this.activeCascadeCount ? splits[i] : 0.0F;
-            if (i < this.activeCascadeCount) {
-               boolean update = this.shouldUpdateCascade(i, layoutChanged);
-               this.cascadeUpdates[i] = needsTerrainRefresh(update, NativePackRuntime.animatedShadowCasters());
-               if (update) {
-                  float start = i == 0 ? 0.5F : splits[i - 1] * 0.82F;
-                  this.cascadeEnds[i] = end;
-                  Matrix4f previousFit = (new Matrix4f(this.renderedCascadeMatrices[i])).translate((float)(this.cameraX - this.renderedCameraX[i]), (float)(this.cameraY - this.renderedCameraY[i]), (float)(this.cameraZ - this.renderedCameraZ[i]));
-                  this.fitCascadeMatrix(i, inverseProjection, start, end, this.renderedCascadeMatrices[i]);
-                  if (!this.cascadeInitialized[i] || !previousFit.equals(this.renderedCascadeMatrices[i], 1.0E-6F)) {
-                     this.cascadeLayoutVersions[i]++;
-                  }
-
-                  this.renderedCameraX[i] = this.cameraX;
-                  this.renderedCameraY[i] = this.cameraY;
-                  this.renderedCameraZ[i] = this.cameraZ;
-                  this.renderedFrameSerial[i] = this.frameSerial;
-                  this.renderedTerrainRevision[i] = SodiumShadowTerrainRenderer.terrainRevision();
-                  this.renderedCameraForwards[i].set(this.cameraForward);
-                  this.cascadeInitialized[i] = true;
-               }
-
-               this.cascadeMatrices[i].set(this.renderedCascadeMatrices[i]).translate((float)(this.cameraX - this.renderedCameraX[i]), (float)(this.cameraY - this.renderedCameraY[i]), (float)(this.cameraZ - this.renderedCameraZ[i]));
-               boolean entityUpdate = ShadowService.enabled() && i < 1 && (layoutChanged || !this.entityCascadeInitialized[i] || update || this.frameSerial - this.renderedEntityFrameSerial[i] >= (long)ENTITY_UPDATE_INTERVALS[i]);
-               this.entityCascadeUpdates[i] = entityUpdate;
-               if (entityUpdate) {
-                  this.renderedEntityFrameSerial[i] = this.frameSerial;
-                  this.entityCascadeInitialized[i] = true;
-               }
-            } else {
-               this.cascadeUpdates[i] = false;
-               this.cascadeInitialized[i] = false;
-               this.entityCascadeUpdates[i] = false;
-               this.entityCascadeInitialized[i] = false;
-               this.cascadeEnds[i] = 0.0F;
-               this.cascadeMatrices[i].identity();
-               this.renderedCascadeMatrices[i].identity();
-               this.cascadeTexelWorldSizes[i] = 0.0F;
-               this.cascadeDepthRanges[i] = 0.0F;
-            }
-         }
-
+         SkyRenderState sky = levelRenderState.skyRenderState;
+         this.schedule = this.planner.plan(
+               quality,
+               this.cameraX,
+               this.cameraY,
+               this.cameraZ,
+               camera.viewRotationMatrix,
+               camera.projectionMatrix,
+               sky != null,
+               sky == null ? 0.0F : sky.sunAngle,
+               sky == null ? 0.0F : sky.moonAngle,
+               installed.renderDistance(),
+               ShadowService.distance(),
+               ShadowService.enabled(),
+               NativePackRuntime.animatedShadowCasters(),
+               maxShadowSize,
+               CascadePlanner.terrainRevision(),
+               resourcesChanged);
       } else {
-         this.activeCascadeCount = 0;
+         this.schedule = this.planner.suspend();
       }
    }
 
    public int activeCascadeCount() {
-      return this.activeCascadeCount;
+      return this.schedule.activeCascadeCount();
    }
 
-   static boolean needsTerrainRefresh(boolean projectionChanged, boolean animatedCasters) {
-      return projectionChanged || animatedCasters;
+   /** 计划模块的只读统计；{@link ShadowService} 把它转给门禁记录用。 */
+   public CascadePlanStats planStats() {
+      return this.planner.stats();
+   }
+
+   /** 包可见：让测试能直接摆布计划状态，见 {@code DirectionalShadowRendererTeardownTest}。 */
+   CascadePlanner planner() {
+      return this.planner;
    }
 
    public long cascadeLayoutVersion(int cascade) {
-      return this.cascadeLayoutVersions[cascade];
+      return this.schedule.layoutVersion(cascade);
    }
 
    public Matrix4fc cascadeMatrix(int cascade) {
-      return this.cascadeMatrices[cascade];
+      return this.schedule.cascadeMatrix(cascade);
    }
 
    public boolean shouldUpdateCascade(int cascade) {
-      return cascade >= 0 && cascade < this.activeCascadeCount && this.cascadeUpdates[cascade];
+      return this.schedule.cascadeUpdate(cascade);
    }
 
    public boolean shouldUpdateEntityCascade(int cascade) {
-      return cascade >= 0 && cascade < this.activeCascadeCount && this.entityCascadeUpdates[cascade];
+      return this.schedule.entityCascadeUpdate(cascade);
    }
 
    public float cascadeEnd(int cascade) {
-      return cascade >= 0 && cascade < this.activeCascadeCount ? this.cascadeEnds[cascade] : 0.0F;
+      return this.schedule.cascadeEnd(cascade);
    }
 
    public Vector3f lightDirection(Vector3f destination) {
-      return destination.set(this.lightDirection);
+      return destination.set(this.schedule.lightDirection());
    }
 
    public Vector3f cameraForward(Vector3f destination) {
-      return destination.set(this.cameraForward);
+      return destination.set(this.schedule.cameraForward());
    }
 
    public float shadowDistance() {
-      return this.activeCascadeCount <= 0 ? 0.0F : this.cascadeEnds[this.activeCascadeCount - 1];
+      return this.schedule.shadowDistance();
    }
 
    public float entityShadowDistance() {
-      return this.activeCascadeCount <= 0 ? 0.0F : this.cascadeEnds[Math.min(1, this.activeCascadeCount) - 1];
+      return this.schedule.entityShadowDistance();
    }
 
    public float entityCascadeEnd(int cascade) {
-      return cascade >= 0 && cascade < Math.min(1, this.activeCascadeCount) ? this.cascadeEnds[cascade] : 0.0F;
+      return this.schedule.entityCascadeEnd(cascade);
    }
 
    public RenderTarget target(int cascade) {
@@ -318,32 +252,17 @@ public final class DirectionalShadowRenderer {
    }
 
    public boolean sectionIntersectsCascade(int cascade, int originX, int originY, int originZ) {
-      if (cascade >= 0 && cascade < this.activeCascadeCount) {
-         float margin = cascade == 0 ? 0.18F : 0.12F;
-         return intersectsSection(this.cascadeMatrices[cascade], (float)((double)originX + (double)8.0F - this.cameraX), (float)((double)originY + (double)8.0F - this.cameraY), (float)((double)originZ + (double)8.0F - this.cameraZ), margin);
-      } else {
-         return false;
-      }
-   }
-
-   static boolean intersectsSection(Matrix4fc matrix, float x, float y, float z, float margin) {
-      float extent = 8.25F;
-      float cx = matrix.m00() * x + matrix.m10() * y + matrix.m20() * z + matrix.m30();
-      float cy = matrix.m01() * x + matrix.m11() * y + matrix.m21() * z + matrix.m31();
-      float cz = matrix.m02() * x + matrix.m12() * y + matrix.m22() * z + matrix.m32();
-      float ex = extent * (Math.abs(matrix.m00()) + Math.abs(matrix.m10()) + Math.abs(matrix.m20()));
-      float ey = extent * (Math.abs(matrix.m01()) + Math.abs(matrix.m11()) + Math.abs(matrix.m21()));
-      float ez = extent * (Math.abs(matrix.m02()) + Math.abs(matrix.m12()) + Math.abs(matrix.m22()));
-      return cx + ex >= -1.0F - margin && cx - ex <= 1.0F + margin && cy + ey >= -1.0F - margin && cy - ey <= 1.0F + margin && cz + ez >= -0.08F && cz - ez <= 1.08F;
+      return this.schedule.sectionIntersectsCascade(cascade, originX, originY, originZ, this.cameraX, this.cameraY, this.cameraZ);
    }
 
    public void uploadCascade(CommandEncoder encoder, int cascade) {
       this.cascadeUpload.clear();
-      this.cascadeMatrices[cascade].get(this.cascadeUpload);
+      this.schedule.cascadeMatrix(cascade).get(this.cascadeUpload);
       this.cascadeUpload.position(64);
-      putVec4(this.lightDirection.x, this.lightDirection.y, this.lightDirection.z, 0.0F, this.cascadeUpload);
+      Vector3fc light = this.schedule.lightDirection();
+      putVec4(light.x(), light.y(), light.z(), 0.0F, this.cascadeUpload);
       this.cascadeUpload.position(80);
-      this.inverseViewRotation.get(this.cascadeUpload);
+      this.schedule.inverseViewRotation().get(this.cascadeUpload);
       this.cascadeUpload.rewind();
       this.cascadeSlice = encoder.transientMemory().uploadGpu(this.cascadeUpload, (long)RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment(), 128);
    }
@@ -354,18 +273,20 @@ public final class DirectionalShadowRenderer {
 
    public void uploadShadowData(CommandEncoder encoder) {
       this.shadowUpload.clear();
+      int activeCascadeCount = this.schedule.activeCascadeCount();
 
       for(int i = 0; i < 4; ++i) {
-         this.cascadeMatrices[i].get(this.shadowUpload);
+         this.schedule.cascadeMatrix(i).get(this.shadowUpload);
          this.shadowUpload.position((i + 1) * 64);
       }
 
       for(int i = 0; i < 4; ++i) {
-         float depthRange = i < this.activeCascadeCount ? this.cascadeDepthRanges[i] : 0.0F;
-         putVec4(this.cascadeTexelWorldSizes[i], i == 0 ? 0.0F : this.cascadeEnds[i - 1], this.cascadeEnds[i], depthRange, this.shadowUpload);
+         float depthRange = i < activeCascadeCount ? this.schedule.depthRange(i) : 0.0F;
+         putVec4(this.schedule.texelWorldSize(i), i == 0 ? 0.0F : this.schedule.cascadeEndSlot(i - 1), this.schedule.cascadeEndSlot(i), depthRange, this.shadowUpload);
       }
 
-      putVec4(this.lightDirection.x, this.lightDirection.y, this.lightDirection.z, 0.0F, this.shadowUpload);
+      Vector3fc light = this.schedule.lightDirection();
+      putVec4(light.x(), light.y(), light.z(), 0.0F, this.shadowUpload);
       float var10000;
       switch (ShadowService.quality()) {
          case LOW -> var10000 = 1.0F;
@@ -377,8 +298,8 @@ public final class DirectionalShadowRenderer {
       }
 
       float filterSamples = var10000;
-      putVec4(1.0F * this.celestialShadowFade, 0.0F, 0.08F, filterSamples, this.shadowUpload);
-      this.inverseViewRotation.get(this.shadowUpload);
+      putVec4(1.0F * this.schedule.celestialShadowFade(), 0.0F, 0.08F, filterSamples, this.shadowUpload);
+      this.schedule.inverseViewRotation().get(this.shadowUpload);
       this.shadowUpload.rewind();
       this.shadowDataSlice = encoder.transientMemory().uploadGpu(this.shadowUpload, (long)RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment(), 128);
    }
@@ -430,7 +351,7 @@ public final class DirectionalShadowRenderer {
       for(int i = 0; i < 4; ++i) {
          sameSizes &= this.targetSizes[i] == sizes[i];
          if (i < 2) {
-            sameSizes &= this.entityTargetSizes[i] == Math.min(maxShadowSize, ShadowService.enabled() ? entityTargetSize(quality, sizes, i) : 1);
+            sameSizes &= this.entityTargetSizes[i] == Math.min(maxShadowSize, ShadowService.enabled() ? CascadePlanner.entityTargetSize(quality, sizes, i) : 1);
          }
       }
 
@@ -447,7 +368,7 @@ public final class DirectionalShadowRenderer {
                nextTerrain[i] = descriptor.allocate();
                descriptor.prepare(nextTerrain[i]);
                if (i < 2) {
-                  int entitySize = Math.min(maxShadowSize, ShadowService.enabled() ? entityTargetSize(quality, sizes, i) : 1);
+                  int entitySize = Math.min(maxShadowSize, ShadowService.enabled() ? CascadePlanner.entityTargetSize(quality, sizes, i) : 1);
                   nextEntitySizes[i] = entitySize;
                   RenderTargetDescriptor entityDescriptor = new RenderTargetDescriptor(entitySize, entitySize, new RenderTargetDescriptor.TextureProperties(CLEAR, GpuFormat.R8_UNORM), TextureProperties.DEFAULT_DEPTH);
                   nextEntities[i] = entityDescriptor.allocate();
@@ -493,99 +414,6 @@ public final class DirectionalShadowRenderer {
       }
    }
 
-   private boolean shouldUpdateCascade(int cascade, boolean force) {
-      if (!force && this.cascadeInitialized[cascade] && this.renderedTerrainRevision[cascade] == SodiumShadowTerrainRenderer.terrainRevision()) {
-         int interval = CASCADE_UPDATE_INTERVALS[cascade];
-         if (this.frameSerial - this.renderedFrameSerial[cascade] >= (long)interval) {
-            return true;
-         } else {
-            double dx = this.cameraX - this.renderedCameraX[cascade];
-            double dy = this.cameraY - this.renderedCameraY[cascade];
-            double dz = this.cameraZ - this.renderedCameraZ[cascade];
-            double movementLimit = CASCADE_MOVEMENT_LIMITS[cascade];
-            if (dx * dx + dy * dy + dz * dz >= movementLimit * movementLimit) {
-               return true;
-            } else {
-               return this.renderedLightDirections[cascade].dot(this.lightDirection) < 0.9998F || this.renderedCameraForwards[cascade].dot(this.cameraForward) < 0.9659F;
-            }
-         }
-      } else {
-         return true;
-      }
-   }
-
-   private void fitCascadeMatrix(int cascade, Matrix4f inverseProjection, float start, float end, Matrix4f destination) {
-      Vector3f fitLight = this.lightDirection;
-      if (this.cascadeInitialized[cascade] && this.renderedLightDirections[cascade].distanceSquared(fitLight) < 1.0E-6F) {
-         fitLight = this.renderedLightDirections[cascade];
-      } else {
-         this.renderedLightDirections[cascade].set(fitLight);
-      }
-
-      this.buildFrustumSlice(inverseProjection, start, end);
-      Vector3f center = new Vector3f();
-
-      for(Vector3f corner : this.frustumCorners) {
-         center.add(corner);
-      }
-
-      center.div((float)this.frustumCorners.length);
-      float radius = 0.0F;
-
-      for(Vector3f corner : this.frustumCorners) {
-         radius = Math.max(radius, center.distance(corner));
-      }
-
-      radius += Math.max(2.0F, (end - start) * 0.03F);
-      radius = (float)Math.ceil((double)(radius + 0.001F));
-      Vector3f up = Math.abs(fitLight.y) > 0.88F ? new Vector3f(0.0F, 0.0F, 1.0F) : new Vector3f(0.0F, 1.0F, 0.0F);
-      Vector3f lightRight = (new Vector3f(up)).cross(fitLight).normalize();
-      Vector3f lightUp = (new Vector3f(fitLight)).cross(lightRight).normalize();
-      float centerX = lightRight.dot(center);
-      float centerY = lightUp.dot(center);
-      float texelSize = radius * 2.0F / (float)Math.max(1, this.targetSizes[cascade]);
-      this.cascadeTexelWorldSizes[cascade] = texelSize;
-      double originX = (double)lightRight.x * this.cameraX + (double)lightRight.y * this.cameraY + (double)lightRight.z * this.cameraZ;
-      double originY = (double)lightUp.x * this.cameraX + (double)lightUp.y * this.cameraY + (double)lightUp.z * this.cameraZ;
-      centerX = snapWorldTexel(centerX, originX, texelSize);
-      centerY = snapWorldTexel(centerY, originY, texelSize);
-      float depthPadding = Math.max(32.0F, Math.min(128.0F, end * 0.35F));
-      float lightwardPadding = cascade < 2 ? Math.max(depthPadding, this.lastCoverage) : depthPadding;
-      float lightwardReach = radius + lightwardPadding;
-      float oppositeReach = radius + depthPadding;
-      float shadowDepth = lightwardReach + oppositeReach;
-      this.cascadeDepthRanges[cascade] = shadowDepth;
-      Vector3f stableCenter = (new Vector3f(center)).add((new Vector3f(lightRight)).mul(centerX - lightRight.dot(center))).add((new Vector3f(lightUp)).mul(centerY - lightUp.dot(center)));
-      Matrix4f lightView = stableLightView(stableCenter, fitLight, lightUp, lightwardReach);
-      destination.identity().ortho(-radius, radius, -radius, radius, 0.1F, shadowDepth, true).mul(lightView);
-   }
-
-   static Matrix4f stableLightView(Vector3f center, Vector3f direction, Vector3f up, float reach) {
-      Vector3f eye = (new Vector3f(direction)).mul(reach).add(center);
-      return (new Matrix4f()).lookAlong((new Vector3f(direction)).negate(), up).translate(-eye.x, -eye.y, -eye.z);
-   }
-
-   static float snapWorldTexel(float relative, double origin, float texelSize) {
-      return (float)(Math.floor((origin + (double)relative) / (double)texelSize + (double)0.5F) * (double)texelSize - origin);
-   }
-
-   private void buildFrustumSlice(Matrix4f inverseProjection, float start, float end) {
-      int index = 0;
-
-      for(float distance : new float[]{start, end}) {
-         for(int y = -1; y <= 1; y += 2) {
-            for(int x = -1; x <= 1; x += 2) {
-               Vector4f view = inverseProjection.transform(new Vector4f((float)x, (float)y, 1.0F, 1.0F));
-               view.div(view.w);
-               Vector3f ray = (new Vector3f(view.x, view.y, view.z)).normalize().mul(distance);
-               this.inverseViewRotation.transformPosition(ray);
-               this.frustumCorners[index++].set(ray);
-            }
-         }
-      }
-
-   }
-
    private void destroyTargets() {
       for(int i = 0; i < 4; ++i) {
          if (this.targets[i] != null) {
@@ -600,67 +428,11 @@ public final class DirectionalShadowRenderer {
 
          this.targetSizes[i] = 0;
          this.entityTargetSizes[i] = 0;
-         this.cascadeTexelWorldSizes[i] = 0.0F;
-         this.cascadeDepthRanges[i] = 0.0F;
       }
 
-   }
-
-   private static float[] splitDistances(float coverage, int count) {
-      float[] result = new float[4];
-      float near = 8.0F;
-
-      for(int i = 0; i < count; ++i) {
-         float t = (float)(i + 1) / (float)count;
-         float logarithmic = near * (float)Math.pow((double)(coverage / near), (double)t);
-         float uniform = near + (coverage - near) * t;
-         result[i] = uniform * 0.35F + logarithmic * 0.65F;
-      }
-
-      return result;
-   }
-
-   static int[] targetSizes(ShaderQualityPreset quality, int maxSize) {
-      int[] var10000;
-      switch (quality) {
-         case LOW -> var10000 = new int[]{1536, 1, 1, 1};
-         case MEDIUM -> var10000 = new int[]{2048, 1536, 1024, 1};
-         case HIGH -> var10000 = new int[]{3072, 2048, 1536, 1024};
-         case ULTRA -> var10000 = new int[]{6144, 2048, 2048, 1024};
-         case OFF -> var10000 = new int[]{1, 1, 1, 1};
-         default -> throw new MatchException((String)null, (Throwable)null);
-      }
-
-      int[] sizes = var10000;
-
-      for(int i = 0; i < sizes.length; ++i) {
-         sizes[i] = Math.min(sizes[i], Math.max(1, maxSize));
-      }
-
-      return sizes;
-   }
-
-   static int entityTargetSize(ShaderQualityPreset quality, int[] terrainSizes, int cascade) {
-      if (cascade < 1 && terrainSizes[cascade] != 1) {
-         int var10000;
-         switch (quality) {
-            case LOW -> var10000 = Math.max(512, terrainSizes[cascade] / 2);
-            case MEDIUM -> var10000 = cascade == 0 ? 1536 : 768;
-            case HIGH -> var10000 = cascade == 0 ? 3072 : 1024;
-            case ULTRA -> var10000 = cascade == 0 ? 6144 : 2048;
-            case OFF -> var10000 = 512;
-            default -> throw new MatchException((String)null, (Throwable)null);
-         }
-
-         return var10000;
-      } else {
-         return 1;
-      }
-   }
-
-   private static float smoothstep(float edge0, float edge1, float value) {
-      float t = Math.max(0.0F, Math.min(1.0F, (value - edge0) / (edge1 - edge0)));
-      return t * t * (3.0F - 2.0F * t);
+      // 迁移前这两行在同一个循环里：纹素世界尺寸与深度范围是与贴图分辨率绑定的，纹理拆了就该归零。
+      // 它们现在住在计划模块里，所以这一步显式跨过接缝。
+      this.planner.forgetTextureDerivedState();
    }
 
    private static void putVec4(float x, float y, float z, float w, ByteBuffer buffer) {
@@ -670,6 +442,22 @@ public final class DirectionalShadowRenderer {
       buffer.putFloat(w);
    }
 
+   /**
+    * 拆除 GPU 资源。可以重复调用；什么都没分配过时也是安全的。
+    * <p>
+    * <b>它不清理计划状态。</b>这条不对称是**故意的**、也是迁移前就有的：
+    * {@link #ensureResources}（经由 {@code retireTargets}）与 {@link #retireUnused} 都会在重建资源时
+    * 让"上一次的尺寸/资源"归零，而 {@code close()} 只拆 RenderTarget，不动帧号、布局版本、
+    * 每个级联上次渲染的位置。换句话说：拿着同一个实例继续用的人，看到的计划历史是连续的。
+    * 这里不改它——改它就不是行为保持的提取了。
+    * <p>
+    * <b>另一处也刻意不动的不一致：</b>这里 {@code destroyBuffers()} 是**同步**调用的，而
+    * {@code ensureResources}/{@code retireUnused} 走 {@code RenderSystem.queueFencedTask} 排到栅栏之后。
+    * 这个分歧是迁移前就存在的，没有被本次提取引入，也**故意不在本次修复**：`close()` 的调用方是
+    * {@code MinecraftShaderHost.closeReloadableResources()}，而 {@code ShaderRuntime} 在
+    * {@code reloadResources()} **之前一步**就调它——也就是说当前帧的 GPU 命令可能仍在使用这些纹理，
+    * 同步销毁疑似 use-after-free。修它要动的是拆资源的时序，属于另一个改动，不在本次范围。
+    */
    public static void close() {
       if (instance != null) {
          instance.destroyTargets();

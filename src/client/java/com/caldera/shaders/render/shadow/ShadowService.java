@@ -31,19 +31,29 @@ public final class ShadowService {
       } else {
          long bytes = 560L;
          ShaderQualityPreset preset = ShaderQualityPreset.values()[quality];
-         int[] sizes = DirectionalShadowRenderer.targetSizes(preset, Integer.MAX_VALUE);
+         int[] sizes = CascadePlanner.targetSizes(preset, Integer.MAX_VALUE);
 
          for(int size : sizes) {
             bytes += (long)size * (long)size * 5L;
          }
 
          for(int i = 0; i < 2; ++i) {
-            int size = DirectionalShadowRenderer.entityTargetSize(preset, sizes, i);
+            int size = CascadePlanner.entityTargetSize(preset, sizes, i);
             bytes += (long)size * (long)size * 5L;
          }
 
          return bytes;
       }
+   }
+
+   /**
+    * 级联计划的只读统计：每个级联各自被要求重画了多少次，以及级联布局一共动了多少次。
+    * <p>
+    * 存在的意义是给门禁留一个**记录**用的出口：级联调度错了不会抛异常，只会安静地少画影子
+    * 或每帧重画，这两种状态在画面上不好认、在计数上很好认。它不参与任何判定。
+    */
+   public static CascadePlanStats planStats() {
+      return DirectionalShadowRenderer.get().planStats();
    }
 
    public static void layout(BindGroupLayout.Builder layout) {

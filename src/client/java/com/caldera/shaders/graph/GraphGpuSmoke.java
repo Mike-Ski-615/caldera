@@ -13,6 +13,9 @@ import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import com.mojang.renderpearl.api.pipeline.ColorTargetState;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.caldera.shaders.render.shadow.CascadePlanStats;
+import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
+import com.caldera.shaders.render.shadow.ShadowService;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
@@ -292,7 +295,22 @@ public final class GraphGpuSmoke {
    }
 
    private static void finishWorldSmoke(Minecraft client) {
-      LogUtils.getLogger().info("CALDERA_WORLD_SMOKE_PASS frames={} terrainCaptures={} scenePipelines={}", NativePackRuntime.renderedFrames(), NativePackRuntime.terrainCaptures(), NativePackRuntime.sceneReplacementCount());
+      int cascades = DirectionalShadowRenderer.get().activeCascadeCount();
+      // 结构性断言，与"什么都没画"那条守卫同源：包声明了阴影（shadowQuality > 0），跑满整段帧数之后
+      // 却一个级联都没有，就说明阴影那条路整条没跑起来——而它的唯一表现是画面里没有影子，
+      // 截图门禁的均值比较抓不到它。
+      //
+      // 判定用的是 NativePackRuntime.shadowQuality() 而不是 ShadowService.enabled()：后者还要求
+      // shadowFrameReady()，而那是 **frame scope 内**才成立的（sceneActive）。这里在 END_CLIENT_TICK 上，
+      // 本帧的 scene 已经关掉，于是 enabled() 恒为 false——拿它当门闸等于这条断言永不执行。
+      if (NativePackRuntime.shadowQuality() > 0 && cascades <= 0) {
+         LogUtils.getLogger().error("CALDERA_WORLD_SMOKE_FAIL shadows are enabled but the cascade planner produced no cascades (activeCascadeCount={})", cascades);
+         client.stop();
+         return;
+      }
+
+      CascadePlanStats stats = ShadowService.planStats();
+      LogUtils.getLogger().info("CALDERA_WORLD_SMOKE_PASS frames={} terrainCaptures={} scenePipelines={} shadowCascades={} shadowTerrainUpdates={} shadowLayoutChurn={}", NativePackRuntime.renderedFrames(), NativePackRuntime.terrainCaptures(), NativePackRuntime.sceneReplacementCount(), cascades, stats.terrainUpdatesSummary(), stats.totalLayoutVersionChurn());
       client.stop();
    }
 
