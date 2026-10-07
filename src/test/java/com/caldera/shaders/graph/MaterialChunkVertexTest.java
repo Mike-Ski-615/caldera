@@ -13,11 +13,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 /**
  * 材质顶点格式的编码。
  * <p>
- * 这几条断言原先只存在于 {@code GraphGpuSmoke.checkMaterialEncoding} 里——一段要求 GPU、一个真的叫
- * "Caldera QA" 的世界、跑不到就 {@code client.stop()} 的脚手架。而它们其实全在 CPU 上：
+ * 这几条断言其实全在 CPU 上：
  * {@code MaterialChunkVertex} 的编码器往一块 LWJGL 堆外缓冲里写字，然后逐字与
- * {@code CompactChunkVertex} 的输出比对。那段代码里唯一的 GPU 调用是把顶点交给管线，
- * 与**任何一条断言都无关**——所以断言可以搬到这里来。
+ * {@code CompactChunkVertex} 的输出比对。这段代码里唯一的 GPU 调用是把顶点交给管线，
+ * 与**任何一条断言都无关**。
  * <p>
  * <b>这个文件比原计划小，原因是一条实测出来的事实，记在这里免得下一个人再试一遍：</b>
  * {@code MaterialTable.compile} 按 {@code minecraft:stone} 这样的 id 去查方块注册表，所以在测试里
@@ -67,7 +66,7 @@ class MaterialChunkVertexTest {
    /**
     * 材质顶点是 **24** 字节，不是紧凑格式的 20：多出来的那 4 字节是材质 id。
     * <p>
-    * 这条错了的表现是整块地形被按错误的步长解出来——花屏，而在游戏里只有那一次 smoke 会告诉你。
+    * 这条错了的表现是整块地形被按错误的步长解出来——花屏。
     */
    @Test
    void theMaterialFormatIsTwentyFourBytesPerVertex() {

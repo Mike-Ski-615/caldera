@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * 全部在 {@code active == null} 之下跑（见 candidate 1 第 4 轮的决定）：{@code active} 是具体的
  * {@link GraphRenderer}，要让"有 renderer"的路径也可测，就得造一个接口里带着 Minecraft 类型的
- * seam，而 mixin 最终还是要拿到具体对象。剩下的由 {@code caldera.worldSmokeImage} 的前后截图覆盖。
+ * seam，而 mixin 最终还是要拿到具体对象。
  * <p>
  * <b>顺序为什么值得单独测：</b>改动前 {@code sceneScope} 把两件事混在一个 boolean 里——
  * "我们在世界渲染里"（{@code scope}）和"相机就绪、可以画"（{@code beginScene}）。

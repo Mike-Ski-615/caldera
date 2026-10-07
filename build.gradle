@@ -10,49 +10,6 @@ base {
 	archivesName = "caldera"
 }
 
-// 截图门禁用的五个开关：它们都是**客户端 JVM** 的系统属性（Boolean.getBoolean / getProperty），
-// 而 Gradle 不会把守护进程的 -D 转发给 runClient，所以下面显式接上。
-//
-// 跑法（每次都要先重建那个一次性世界，否则天气/时间/玩家位置会从上一次带过来）：
-//   python scripts/make-qa-world.py
-//   ./gradlew runClient -Pcaldera.worldSmoke=true -Pcaldera.demoScene=land \
-//       -Pcaldera.worldSmokeImage=build/smoke/after.png \
-//       -Pcaldera.quickPlayWorld=CalderaQA -Pcaldera.clientUsername=GateRunner
-// 世界必须叫 "Caldera QA"（level.dat 里的显示名，不是目录名）：demoScene 会往它里面发命令
-// （改时间/天气/旁观），所以它得是一次性世界。scripts/make-qa-world.py 负责把它造出来。
-// 全程无人值守：quick-play 直接进世界，跑满帧数截图，然后客户端自己退出。
-//
-// 这些开关**只在开发环境里**生效，而且承载它们的那 5 个 smoke 类现在住在一个独立的 dev mod
-// （id caldera-dev，源码在 src/smoke）里。它由下面的 sourceSets/mods 配置挂进 runClient：
-// 少了那条配置，客户端会正常启动、世界会正常加载，但那 5 个开关**什么也不做**——门禁就再也
-// 截不出图了。这不是假设：把 mods 里那个条目删掉就会看到这一种失败法。
-//
-// 门禁的读法（实测，别照直觉读）：
-//   同一个构建跑两次，画面差异可以到 mean 4.4/255；偶尔会出现一次明显偏灰的跑（mean 11.7，
-//   同构建之间也一样）。所以**单张 before/after 对比会骗人**——曾有一次同构建差异
-//   （11.7）比跨构建差异（13.5）还接近，唯一能站住的做法是每个构建跑 ≥2 次、比分布。
-//   它能可靠抓到的是"崩了/包被暂停了/什么都没画"（CALDERA_WORLD_SMOKE_FAIL 或
-//   scenePipelines=0），抓不到细微的着色漂移——那需要每个构建 ≥3 次采样。
-//   之所以不能像素级对齐：wind 相位取自 System.nanoTime()，云与水面按世界时间走，
-//   而截图发生在"第 120 帧"而不是"第 120 tick"，所以每跑一次的动画相位都不同。
-//   另有一种必须**判废**而不是解读的跑法：runClient 的窗口一旦失焦，单人世界会自动暂停，
-//   截图拍到的就是暂停菜单（体积会掉到正常图的三分之一左右）。所以 run/options.txt 里
-//   pauseOnLostFocus 必须是 false（run/ 不入库，属本地门禁输入），并且每次跑完要看一眼图，
-//   拍成菜单的那次直接丢掉、不算一次采样——它既不是 PASS 也不是 FAIL。
-def calderaSmokeProperties = [
-	"caldera.worldSmoke",
-	"caldera.worldSmokeReload",
-	"caldera.worldSmokeFrames",
-	"caldera.worldSmokeImage",
-	"caldera.demoScene",
-]
-
-// 开发期门禁（那 5 个 smoke 类）住在**自己的 mod** 里，而不是 src/client/java。
-// 于是它不进 jar，生产代码也不必再引用它——两条都由 Loom 的既有机制保证，没有自造的东西。
-sourceSets {
-	smoke
-}
-
 loom {
 	splitEnvironmentSourceSets()
 
@@ -61,49 +18,8 @@ loom {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
 		}
-		"caldera-dev" {
-			sourceSet sourceSets.smoke
-		}
-	}
-
-	runs {
-		client {
-			calderaSmokeProperties.each { key ->
-				if (project.hasProperty(key)) {
-					property(key, project.property(key).toString())
-				}
-			}
-			// 让客户端直接进世界，省掉"点标题屏进存档"这一步（否则门禁没法无人值守地跑）。
-			// 传 directory 名，不是 level.dat 里的显示名。
-			if (project.hasProperty("caldera.quickPlayWorld")) {
-				programArg "--quickPlaySingleplayer"
-				programArg project.property("caldera.quickPlayWorld").toString()
-			}
-			// 固定玩家名，否则每跑一次都是新 UUID、新 playerdata，登录位置就跟着漂，
-			// demoScene 那个相对传送（~ ~6 ~）拍出来的机位自然也不一样。
-			if (project.hasProperty("caldera.clientUsername")) {
-				programArg "--username"
-				programArg project.property("caldera.clientUsername").toString()
-			}
-		}
 	}
 }
-// 为什么是"独立 mod"而不是把这几个类挂到 caldera 名下：那样就没有第二个入口点可挂
-// （fabric.mod.json 是共用的、要随 jar 发出去），于是生产侧必须留一个能引用 harness 的钩子——
-// 而那正是这次要拆掉的东西。独立 mod 让调用方向反过来：harness 在自己的入口点里注册自己。
-//
-// 挂到 client 的 runtimeClasspath 是**必需**的那一条：Loader 枚举的是 JVM classpath
-// （getResources("fabric.mod.json")），分组是在那之后才套上去的。少了它，客户端会一切正常
-// 地启动、世界也照常加载，但那 5 个开关什么也不做——门禁就再也截不出图。
-//
-// mods 里那个独立条目则**不是**必需的：实测把它删掉，门禁同样 PASS，dev mod 同样被加载
-// （Loader 对不在任何组里的 fabric.mod.json 会退回"单路径候选"，见 ClasspathModCandidateFinder:60-61）。
-// 留它是因为它才是 Loom 声明的"这个源码集属于哪个 mod"，并且它让 smoke 的 class 目录也进这个 mod
-// 的 root paths，而不是只有那个装着 fabric.mod.json 的 resources 目录。
-sourceSets.smoke.compileClasspath += sourceSets.main.output
-sourceSets.smoke.compileClasspath += sourceSets.client.output
-sourceSets.smoke.compileClasspath += sourceSets.client.compileClasspath
-sourceSets.client.runtimeClasspath += sourceSets.smoke.output
 
 // Sodium 只在 CaffeineMC 自己的仓库里发布；MixinExtras 在 Maven Central。
 repositories {
@@ -121,7 +37,7 @@ dependencies {
 
 	// 0.5.1 硬依赖 Sodium：mixin/sodium/** 会在编译期引用它的内部类。
 	// 用 implementation 而非 modImplementation —— Sodium 与 Minecraft 同为 official 命名空间，
-	// 无需 remap；这一点已在门禁工程里实测通过。
+	// 无需 remap；这一点已在开发环境的 runClient 里实测通过。
 	implementation "net.caffeinemc:sodium-fabric:${project.sodium_version}"
 
 	// MixinExtras 由 Fabric Loader 以嵌套 jar 形式在运行期提供（0.5.5），
@@ -142,13 +58,6 @@ sourceSets.test.runtimeClasspath += sourceSets.client.output
 
 tasks.withType(Test).configureEach {
 	useJUnitPlatform()
-}
-
-// 普通构建也要编译门禁。那 5 个类**只在**截图门禁跑的时候才被用到，一个没人编译的 harness
-// 会安静地烂掉——它编译不过必须当场知道，而不是等到下一次门禁跑出一个奇怪的结果。
-// 挂 check 而不是 build：它是验证的一部分，不是产物的一部分（它不进任何 jar）。
-tasks.named("check") {
-	dependsOn sourceSets.smoke.classesTaskName
 }
 
 processResources {
