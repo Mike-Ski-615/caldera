@@ -317,6 +317,19 @@ public final class NativePackRuntime {
       return runtime == null ? descriptor : runtime.sceneAttachmentsNow(descriptor);
    }
 
+   /**
+    * 决定要不要接管一个刚建出来的 render pass，要的话包一层。
+    * <p>
+    * 这一条从 {@code SceneRenderPass} 挪出来，是为了把那里最后一处伸手拿掉：主目标的颜色纹理
+    * 原先由它自己去读 {@code Minecraft.getInstance().gameRenderer.mainRenderTarget()}，而
+    * {@link ShaderHost#mainRenderTarget()} 就是同一句。归到这里之后，那个模块只剩策略，
+    * 游戏能力的取用全在本类**已经**持有的 host 上。
+    */
+   public static RenderPass wrapScenePass(RenderPass pass, RenderPassDescriptor descriptor) {
+      NativePackRuntime runtime = instance;
+      return runtime == null ? pass : runtime.wrapScenePassNow(pass, descriptor);
+   }
+
    public static RenderPipeline scenePipeline(RenderPipeline base, List<RenderPassDescriptor.Attachment<Optional<Vector4fc>>> attachments) {
       NativePackRuntime runtime = instance;
       return runtime == null ? base : runtime.scenePipelineNow(base, attachments);
@@ -551,6 +564,16 @@ public final class NativePackRuntime {
       return this.active != null && !ShaderRuntime.resourceReloading();
    }
 
+   /**
+    * 见 {@link #wrapScenePass(RenderPass, RenderPassDescriptor)}。
+    * <p>
+    * 颜色纹理是**惰性**递进去的：每帧都有很多 {@code createRenderPass}，光影没开时前三项就否了，
+    * 不该在这一步去问游戏——原件就是这个顺序。
+    */
+   private RenderPass wrapScenePassNow(RenderPass pass, RenderPassDescriptor descriptor) {
+      return SceneRenderPass.wrap(pass, descriptor, this.usesNativeTransparencyNow(), () -> this.host.mainRenderTarget().getColorTexture());
+   }
+
    private boolean shadowFrameReadyNow() {
       return this.sceneActive && this.camera != null && !this.geometryRebuildPending && this.sceneFailure == null;
    }
@@ -716,6 +739,14 @@ public final class NativePackRuntime {
       }
    }
 
+   /**
+    * 保留世界深度，供手部渲染之后的 3D HUD 用。
+    * <p>
+    * 这一条**故意不包** {@code SceneRenderPass.outside}：它的注入点是 {@code GameRenderer.render3dHud}
+    * 里 {@code clearDepthTexture} 之前，也就是关卡早就画完、scene pass 已经关掉的手部渲染阶段——
+    * 那个时刻本来就没有活跃 pass，包一层会是空转。上面 {@code captureTranslucentDepthNow} 看起来
+    * 做着同一件事却必须包，是因为它跑在关卡渲染**之中**，那时 pass 正开着。
+    */
    private void captureWorldDepthNow() {
       if (this.sceneActive && this.camera != null && this.active != null && this.sceneFailure == null && !ShaderRuntime.resourceReloading()) {
          try {

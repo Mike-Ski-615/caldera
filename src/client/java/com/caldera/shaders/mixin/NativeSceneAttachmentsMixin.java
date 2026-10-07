@@ -4,7 +4,6 @@ import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import com.mojang.renderpearl.frontend.FrontendCommandEncoder;
 import com.caldera.shaders.graph.NativePackRuntime;
-import com.caldera.shaders.graph.SceneRenderPass;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -28,6 +27,6 @@ public abstract class NativeSceneAttachmentsMixin {
       cancellable = true
    )
    private void caldera$splitScenePass(RenderPassDescriptor descriptor, CallbackInfoReturnable<RenderPass> cir) {
-      cir.setReturnValue(SceneRenderPass.wrap((RenderPass)cir.getReturnValue(), descriptor));
+      cir.setReturnValue(NativePackRuntime.wrapScenePass((RenderPass)cir.getReturnValue(), descriptor));
    }
 }
