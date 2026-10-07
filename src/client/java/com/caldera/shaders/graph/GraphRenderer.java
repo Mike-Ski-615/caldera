@@ -364,7 +364,7 @@ public final class GraphRenderer implements AutoCloseable {
 
          for(PackGraph.Pass node : this.schedule) {
             if (node.isCompute()) {
-               ((ComputeProgram)this.computePipelines.get(node)).dispatch(uniforms, (resource) -> node.writes().contains(resource) ? this.image(resource).attachment : this.resolve(resource, main), this::sampler, this.buffers);
+               ((ComputeProgram)this.computePipelines.get(node)).dispatch(uniforms, (resource) -> node.writes().contains(resource) ? this.image(resource).attachment : this.resolve(resource, main), this::sampler, this.buffers, this.parity);
                node.writes().forEach(this::generateMipmaps);
             } else {
                RenderPassDescriptor.Builder descriptor = RenderPassDescriptor.builder(() -> {
@@ -460,7 +460,7 @@ public final class GraphRenderer implements AutoCloseable {
 
    private Image image(String name) {
       Image[] pair = (Image[])this.images.get(PackGraph.current(name));
-      return pair[pair.length == 1 ? 0 : (PackGraph.previous(name) ? this.parity ^ 1 : this.parity)];
+      return DoubleBuffer.current(pair, name, this.parity);
    }
 
    private void generateMipmaps(String name) {

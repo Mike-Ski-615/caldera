@@ -19,7 +19,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Stream;
@@ -497,29 +496,62 @@ public final class NativePackRuntime {
       }
    }
 
+   /**
+    * 把当前渲染器摘下来。
+    * <p>
+    * 三条拆除路径——{@link #activateRenderer(GraphRenderer, String)}、{@link #pause(Exception)}、
+    * {@link #closeActive()}——真正重复的就是这一块：取走 {@code active}、清掉 {@code activeId}、
+    * 处置旧的。原先它写了两遍半（pause 与 activate 各一份，closeActive 半个），加一个拆除场景就要
+    * 记得把这几行再抄一次。
+    * <p>
+    * <b>两条故意的差异不在这个方法里，而在调用点上，并且是显式参数：</b>
+    * <ul>
+    *    <li>{@code failure} 字段：activate <b>清</b>它、pause <b>设</b>它、close <b>不碰</b>它。
+    *        那条不对称是原件的行为（界面上显示的就是它），所以留在各自的方法体里。</li>
+    *    <li>处置方式：activate 与 pause 排到栅栏之后（{@code QUEUED}），closeActive 是同步关。
+    *        这个分歧是原件就有的，这里把它变成一个看得见的参数，而不是改掉它。</li>
+    * </ul>
+    *
+    * @return 被摘下来的那个渲染器，没有就是 {@code null}（调用方还要用它算"要不要重建几何"）
+    */
+   private GraphRenderer detach(Disposal disposal) {
+      GraphRenderer old = this.active;
+      this.active = null;
+      this.activeId = null;
+
+      if (old != null) {
+         if (disposal == Disposal.QUEUED) {
+            this.host.queueFence(old::close);
+         } else {
+            old.close();
+         }
+      }
+
+      return old;
+   }
+
+   /** 被摘下来的渲染器怎么处置。 */
+   private enum Disposal {
+      /** 排到栅栏之后：当前帧可能还在用它的资源。 */
+      QUEUED,
+      /** 当场关掉。 */
+      SYNCHRONOUS
+   }
+
    private void activateRenderer(GraphRenderer next, String id) {
       this.sceneFailure = null;
-      GraphRenderer old = this.active;
+      this.failure = null;
+      GraphRenderer old = this.detach(Disposal.QUEUED);
       this.active = next;
       this.activeId = next == null ? null : id;
-      this.failure = null;
       if (old != null && old.materials().enabled() || next != null && next.materials().enabled()) {
          this.geometryRebuildPending = true;
       }
 
-      if (old != null) {
-         Objects.requireNonNull(old);
-         this.host.queueFence(old::close);
-      }
    }
 
    private void closeActive() {
-      if (this.active != null) {
-         this.active.close();
-         this.active = null;
-      }
-
-      this.activeId = null;
+      this.detach(Disposal.SYNCHRONOUS);
    }
 
    /**
@@ -531,17 +563,11 @@ public final class NativePackRuntime {
    private void pause(Exception problem) {
       this.failure = "Shader pack paused: " + problem.getMessage();
       LogUtils.getLogger().error(this.failure, problem);
-      GraphRenderer old = this.active;
-      this.active = null;
-      this.activeId = null;
+      GraphRenderer old = this.detach(Disposal.QUEUED);
       if (old != null && old.materials().enabled()) {
          this.geometryRebuildPending = true;
       }
 
-      if (old != null) {
-         Objects.requireNonNull(old);
-         this.host.queueFence(old::close);
-      }
    }
 
    // ---------------------------------------------------------------- 实例：scene frame

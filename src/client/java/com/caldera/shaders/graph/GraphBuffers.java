@@ -23,7 +23,6 @@ import org.lwjgl.vulkan.VkPhysicalDeviceProperties;
 final class GraphBuffers implements AutoCloseable {
    private final VulkanDevice device = (VulkanDevice)((GraphDeviceAccessor)RenderSystem.getDevice()).caldera$backend();
    private final Map<String, Buffer[]> buffers = new LinkedHashMap<>();
-   private int parity;
 
    GraphBuffers(PackGraph graph) throws IOException {
       Set<String> used = new LinkedHashSet<>();
@@ -74,13 +73,18 @@ final class GraphBuffers implements AutoCloseable {
       }
    }
 
-   Buffer resolve(String name) {
+   /**
+    * 取这个资源这一帧要用的那条缓冲。
+    * <p>
+    * {@code parity} 由调用方给，这个类**不再自己存一份**：原先它有一个 {@code int parity} 字段，
+    * 由 {@link #beginFrame(int, boolean)} 拷进来，于是同一个索引有两份，必须手动保持同步。
+    */
+   Buffer resolve(String name, int parity) {
       Buffer[] pair = (Buffer[])this.buffers.get(PackGraph.current(name));
-      return pair[pair.length == 1 ? 0 : (PackGraph.previous(name) ? this.parity ^ 1 : this.parity)];
+      return DoubleBuffer.current(pair, name, parity);
    }
 
    void beginFrame(int parity, boolean reset) {
-      this.parity = parity;
       if (!this.buffers.isEmpty()) {
          VulkanCommandEncoder encoder = this.device.createCommandEncoder();
          MemoryStack stack = MemoryStack.stackPush();

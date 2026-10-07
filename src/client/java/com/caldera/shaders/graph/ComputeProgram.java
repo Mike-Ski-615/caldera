@@ -219,7 +219,7 @@ final class ComputeProgram implements AutoCloseable {
       return binding == 0 ? 6 : (binding <= this.pass.reads().size() ? 1 : (binding <= this.pass.reads().size() + this.pass.writes().size() ? 3 : 7));
    }
 
-   void dispatch(GpuBufferSlice frame, Function<String, GpuTextureView> images, Function<String, GpuSampler> samplers, GraphBuffers buffers) {
+   void dispatch(GpuBufferSlice frame, Function<String, GpuTextureView> images, Function<String, GpuSampler> samplers, GraphBuffers buffers, int parity) {
       VulkanCommandEncoder encoder = this.device.createCommandEncoder();
       MemoryStack stack = MemoryStack.stackPush();
 
@@ -269,7 +269,7 @@ final class ComputeProgram implements AutoCloseable {
          }
 
          for(PackGraph.BufferBinding binding : this.pass.buffers().values()) {
-            GraphBuffers.Buffer buffer = buffers.resolve(binding.resource());
+            GraphBuffers.Buffer buffer = buffers.resolve(binding.resource(), parity);
             ((VkWriteDescriptorSet)writes.get(index++)).pBufferInfo(VkDescriptorBufferInfo.calloc(1, stack).buffer(buffer.handle()).offset(0L).range(buffer.bytes()));
          }
 
