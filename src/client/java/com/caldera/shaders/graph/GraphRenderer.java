@@ -83,6 +83,13 @@ public final class GraphRenderer implements AutoCloseable {
    private final GraphSceneCapture sceneCapture;
    private final Set<RenderPipeline> heldPostPipelines = new HashSet<>();
    private final Set<RenderPipeline> shadowPostPipelines = new HashSet<>();
+   /**
+    * 这个渲染器持有的、需要释放的东西的账本。
+    * <p>
+    * 登记写在各自的创建处；{@link #close()} 只清账本。它**不**持有资源本身——那些还是上面的字段，
+    * 因为它们的读写散布在这个类的 82 行里，把它们搬进访问器是一次与"谁负责释放"无关的大改。
+    */
+   private final GraphResourceLedger resources = new GraphResourceLedger();
 
    public MaterialTable materials() {
       return this.materials;
@@ -122,20 +129,48 @@ public final class GraphRenderer implements AutoCloseable {
       this.frame.heldLighting = (Double)graph.options().getOrDefault("HELD_LIGHTING", (double)0.0F) > (double)0.0F;
       this.materials = MaterialTable.compile(graph.materials());
       this.materials.vegetationWind = graph.options().containsKey("VEGETATION_WIND");
+      // 这五族是纯容器，在字段初始化时就存在了，所以它们在这里登记，而不必等到构造器的后面。
+      // 释放动作写在创建附近，"新加一族"就不再需要在两个地方各写一次。
+      this.resources.onClose(() -> {
+         this.computePipelines.values().forEach(ComputeProgram::close);
+         this.computePipelines.clear();
+      });
+      this.resources.onClose(() -> {
+         this.customTextures.values().forEach(Image::close);
+         this.customTextures.clear();
+      });
+      this.resources.onClose(() -> {
+         this.textureSamplers.values().forEach(UncheckedAutoCloseable::close);
+         this.textureSamplers.clear();
+      });
+      this.resources.onClose(() -> {
+         destroy(this.images);
+         this.images.clear();
+      });
+      // 这些管线是构建出来的描述符，真正的资源在 GraphShaderSources 的注册表里；注销就是释放。
+      this.resources.onClose(() -> {
+         this.ownedPipelines.forEach(GraphShaderSources::remove);
+         this.ownedPipelines.clear();
+      });
       GpuDevice device = RenderSystem.getDevice();
       this.sampler = device.createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST, 1, OptionalDouble.empty());
+      this.resources.own(this.sampler);
 
       try {
          this.linearSampler = device.createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.LINEAR, FilterMode.LINEAR, 1, OptionalDouble.empty());
+         this.resources.own(this.linearSampler);
          if (graph.sceneTargets().size() + 1 > device.getDeviceInfo().limits().maxColorAttachments()) {
             throw new IOException("GPU cannot provide the pack's scene attachments");
          } else {
             this.sceneCapture = new GraphSceneCapture(graph, main);
+            this.resources.own(this.sceneCapture);
             if (this.frame.heldLighting) {
                this.heldShadows = new HeldLightShadowRenderer(this.frame.heldLight);
+               this.resources.own(this.heldShadows);
             }
 
             this.scenePrograms = new ScenePrograms(graph, files);
+            this.resources.own(this.scenePrograms);
 
             for(PackGraph.Pass pass : this.schedule) {
                if (pass.isCompute()) {
@@ -155,6 +190,7 @@ public final class GraphRenderer implements AutoCloseable {
             this.loadTextures(files);
             this.allocate(main.width, main.height);
             this.buffers = new GraphBuffers(graph);
+            this.resources.own(this.buffers);
          }
       } catch (Exception failure) {
          this.close();
@@ -671,40 +707,18 @@ public final class GraphRenderer implements AutoCloseable {
       });
    }
 
+   /**
+    * 释放这个渲染器持有的全部 GPU 资源。
+    * <p>
+    * <b>它不再是一张手工清单。</b>释放动作在各个族的创建处登记进 {@link GraphResourceLedger}，
+    * 这里只负责把账本清一遍。原先这两个地方要人工同步，而不同步的表现是静默泄漏。
+    * <p>
+    * 可以重复调用；什么都没分配过时也是安全的。
+    */
    public void close() {
       if (!this.closed) {
          this.closed = true;
-         if (this.scenePrograms != null) {
-            this.scenePrograms.close();
-         }
-
-         if (this.buffers != null) {
-            this.buffers.close();
-         }
-
-         if (this.sceneCapture != null) {
-            this.sceneCapture.close();
-         }
-
-         if (this.heldShadows != null) {
-            this.heldShadows.close();
-         }
-
-         this.computePipelines.values().forEach(ComputeProgram::close);
-         this.computePipelines.clear();
-         this.customTextures.values().forEach(Image::close);
-         this.customTextures.clear();
-         this.textureSamplers.values().forEach(UncheckedAutoCloseable::close);
-         this.textureSamplers.clear();
-         destroy(this.images);
-         this.images.clear();
-         this.sampler.close();
-         if (this.linearSampler != null) {
-            this.linearSampler.close();
-         }
-
-         this.ownedPipelines.forEach(GraphShaderSources::remove);
-         this.ownedPipelines.clear();
+         this.resources.close();
       }
    }
 
