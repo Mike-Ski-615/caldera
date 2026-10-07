@@ -49,10 +49,15 @@ public final class DirectionalShadowPass {
    }
 
    /**
-    * 执行本帧的阴影关卡。除了 {@link Device#prepare} 那一段（见类注释里的疑点），
-    * 抛出的 {@code RuntimeException} 一律交给 {@link Context#reportFailure}，不再向外冒。
+    * 执行本帧的阴影关卡。
+    * <p>
+    * {@code facts} 是"要不要做"那三条（见 {@link ShadowPassFacts} 里为什么它们值得命名），
+    * {@code context} 是"要做的时候怎么做"。分开之后这个方法的两个入参各自只有一个意思。
+    * <p>
+    * 除了 {@link Device#prepare} 那一段（见类注释里的疑点），抛出的 {@code RuntimeException}
+    * 一律交给 {@link Context#reportFailure}，不再向外冒。
     */
-   public static void execute(Device shadows, Context context) {
+   public static void execute(Device shadows, ShadowPassFacts facts, Context context) {
       LevelRenderState levelState = context.levelState();
 
       // 这一行在 try 之外是**原件的行为**，见类注释里记的那条疑点。
@@ -82,7 +87,7 @@ public final class DirectionalShadowPass {
                   shadows.beginEntityCascade(cascade);
 
                   try {
-                     if (context.hasEntitySubmits()) {
+                     if (facts.entitySubmits()) {
                         context.renderEntities();
                      }
                   } finally {
@@ -93,11 +98,11 @@ public final class DirectionalShadowPass {
          }
 
          context.flushSodiumUniforms();
-         if (context.shadowDataConsumed()) {
+         if (facts.shadowDataConsumed()) {
             shadows.uploadShadowData(encoder);
          }
 
-         if (context.heldLightActive()) {
+         if (facts.heldLightActive()) {
             context.renderHeldLight();
          }
       } catch (RuntimeException failure) {
@@ -147,9 +152,14 @@ public final class DirectionalShadowPass {
    }
 
    /**
-    * 这一帧的事实与效果。判断"有没有 Sodium""有没有相机"不在这里：那些是**适配器自己的守卫**，
-    * 与原件里它们所在的位置一一对应（画地形那一关要 Sodium 且相机就位，收尾刷 uniform 那一关
-    * 只要 Sodium）。模块只说"现在该画地形了"，能不能画是适配器的事。
+    * 这一帧的**效果**：该画的时候怎么画。
+    * <p>
+    * 判断"有没有 Sodium""有没有相机"不在这里：那些是**适配器自己的守卫**，与原件里它们所在的位置
+    * 一一对应（画地形那一关要 Sodium 且相机就位，收尾刷 uniform 那一关只要 Sodium）。模块只说
+    * "现在该画地形了"，能不能画是适配器的事。
+    * <p>
+    * "要不要画"也不在这里——那是 {@link ShadowPassFacts}。两者原先混在同一个接口上，于是
+    * {@code Frame} 那个 record 同时要装事实与动作；分开之后这个接口只剩动作。
     */
    public interface Context {
       LevelRenderState levelState();
@@ -170,25 +180,11 @@ public final class DirectionalShadowPass {
       /** 所有级联之后刷新 Sodium 的 uniform；没有 Sodium 时是空操作。 */
       void flushSodiumUniforms();
 
-      /** 这一帧有没有为近处阴影收集到实体提交。 */
-      boolean hasEntitySubmits();
-
       /** 把收集到的实体画进当前级联的阴影贴图。 */
       void renderEntities();
 
-      /** 这一帧有没有要画的手持光源阴影。 */
-      boolean heldLightActive();
-
       /** 画手持光源那一关的阴影；未启用时是空操作。 */
       void renderHeldLight();
-
-      /**
-       * 这一帧的 shadow data 有没有人消费（也就是原本的 {@code ShadowService.enabled()}）。
-       * <p>
-       * 不该出版的时候上传会改变 shader 读到的东西，所以它是一个**输入**，不是模块自己查的
-       * 全局状态——否则这条分支就在测试里到不了。
-       */
-      boolean shadowDataConsumed();
 
       /** 记录一次失败。模块只报告，不重抛。 */
       void reportFailure(RuntimeException failure);
@@ -204,16 +200,16 @@ public final class DirectionalShadowPass {
     * **lambda 体**里——那些 lambda 编译成 mixin 自己的合成方法，引用重写一定覆盖得到；
     * 而 mixin 的内部类要另走一套处理，是这个项目里没有先例的一条路。
     * <p>
-    * 组件名与 {@link Context} 的方法名同名的（{@code levelState}/{@code encoder}/
-    * {@code shadowDataConsumed}）由记录自动生成的访问器直接满足；其余在这里显式转接。
+    * 它**只装效果**：三条"要不要做"的事实现在住在 {@link ShadowPassFacts} 里，由
+    * {@code execute} 单独收一个参数（见那个类型的注释）。
+    * <p>
+    * 组件名与 {@link Context} 的方法名同名的（{@code levelState}/{@code encoder}）由记录自动生成的
+    * 访问器直接满足；其余在这里显式转接。
     */
    public record Frame(
           LevelRenderState levelState,
           CommandEncoder encoder,
           float packDistance,
-          boolean entitySubmits,
-          boolean shadowDataConsumed,
-          boolean heldLightOn,
           TerrainRenderer terrain,
           Runnable uniformFlush,
           Runnable entities,
@@ -232,18 +228,8 @@ public final class DirectionalShadowPass {
       }
 
       @Override
-      public boolean hasEntitySubmits() {
-         return this.entitySubmits;
-      }
-
-      @Override
       public void renderEntities() {
          this.entities.run();
-      }
-
-      @Override
-      public boolean heldLightActive() {
-         return this.heldLightOn;
       }
 
       @Override

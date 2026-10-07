@@ -282,7 +282,7 @@ class DirectionalShadowPassProtocolTest {
       }
 
       void run() {
-         DirectionalShadowPass.execute(this, this);
+         DirectionalShadowPass.execute(this, new ShadowPassFacts(this.entitySubmits, this.shadowDataConsumed, this.heldLightActive), this);
       }
 
       // -------- Device
@@ -359,10 +359,6 @@ class DirectionalShadowPassProtocolTest {
          this.calls.add("flush");
       }
 
-      public boolean hasEntitySubmits() {
-         return this.entitySubmits;
-      }
-
       public void renderEntities() {
          this.calls.add("entities");
          if (this.entityFailure != null) {
@@ -370,16 +366,8 @@ class DirectionalShadowPassProtocolTest {
          }
       }
 
-      public boolean heldLightActive() {
-         return this.heldLightActive;
-      }
-
       public void renderHeldLight() {
          this.calls.add("heldLight");
-      }
-
-      public boolean shadowDataConsumed() {
-         return this.shadowDataConsumed;
       }
 
       public void reportFailure(RuntimeException failure) {

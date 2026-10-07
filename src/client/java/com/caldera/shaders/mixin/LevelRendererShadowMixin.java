@@ -19,6 +19,7 @@ import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.render.shadow.DirectionalShadowSubmitFilter;
 import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
 import com.caldera.shaders.render.shadow.ShadowService;
+import com.caldera.shaders.render.shadow.ShadowPassFacts;
 import com.caldera.shaders.render.shadow.ShadowPassScope;
 import com.caldera.shaders.render.shadow.SodiumShadowTerrainRenderer;
 import com.caldera.shaders.runtime.ShaderRuntime;
@@ -170,14 +171,17 @@ public abstract class LevelRendererShadowMixin {
       SodiumWorldRenderer sodiumRenderer = SodiumWorldRenderer.instanceNullable();
       GpuSampler sampler = this.chunkLayerSampler != null ? this.chunkLayerSampler : RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
       CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-      DirectionalShadowPass.execute(shadows, new DirectionalShadowPass.Frame(
-            // 值
+      // "要不要做"这三条在这里算好、作为**值**交进去（见 ShadowPassFacts）：
+      // 实体提交是这一帧现算的（只有本类持有那个 SubmitNodeStorage），另两条都是门面查询。
+      ShadowPassFacts facts = new ShadowPassFacts(
+            this.caldera$hasNearShadowEntitySubmits,
+            NativePackRuntime.shadowQuality() > 0 && NativePackRuntime.shadowFrameReady(),
+            this.caldera$activeHeldLight() != null);
+      DirectionalShadowPass.execute(shadows, facts, new DirectionalShadowPass.Frame(
+            // 输入
             this.levelRenderState,
             encoder,
             (float)NativePackRuntime.shadowDistance(),
-            this.caldera$hasNearShadowEntitySubmits,
-            NativePackRuntime.shadowQuality() > 0 && NativePackRuntime.shadowFrameReady(),
-            this.caldera$activeHeldLight() != null,
             // 动作
             cascade -> {
                if (sodiumRenderer != null && this.levelRenderState.cameraRenderState != null) {
