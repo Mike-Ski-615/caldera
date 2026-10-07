@@ -64,10 +64,15 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
    /**
     * 游戏能力的来源。**必须是静态的，不能是实例字段**——这一条是被一次真实崩溃教会的。
     * <p>
-    * 它的生命周期是**进程级**，而这个类的实例不是：{@link #close()} 与 {@link #retireUnused()}
-    * 都会把 {@code instance} 置空（资源重载时 {@code close()} 一定会跑），此后 {@link #get()} 建出来的
-    * 是一个新实例。宿主若挂在实例上，那一刻就丢了，而 {@link #prepare} 会以
-    * {@code IllegalStateException} 在渲染帧里崩掉——实测就是这么崩的。
+    * <b>历史：</b>它一度是实例字段，而那时 {@link #close()} 与 {@link #retireUnused()} 都会把
+    * {@code instance} 置空（资源重载时 {@code close()} 一定会跑）。于是重载之后 {@link #get()}
+    * 建出来的新实例手上没有宿主，{@link #prepare} 随即以 {@code IllegalStateException} 在渲染帧里
+    * 崩掉——实测就是这么崩的。
+    * <p>
+    * <b>现在：</b>那个具体的崩溃路径已经不存在了（实例只由 {@link #install} 创建、此后不再被置空），
+    * 所以这条约束不再靠"会不会崩"来维持。它仍然是**对的**约束，因为这两样东西的生命周期是**进程级**，
+    * 而这个类的实例的生命周期是"一次 GPU 资源分配"——把一个进程级依赖挂在比它短的载体上，
+    * 只是暂时没踩到而已。
     * <p>
     * 这个端口本身是必须的：计划要用"有效渲染距离"与"设备纹理边长上限"，而它们原先分别来自
     * {@code Minecraft.getInstance().options} 与 {@code RenderSystem.getDevice().getDeviceInfo().limits()}。
