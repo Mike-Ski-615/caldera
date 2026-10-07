@@ -51,11 +51,6 @@ final class InstalledShaderLifecycle implements ShaderLifecycle {
    }
 
    @Override
-   public List<ShaderPackScanner.AvailableShaderPack> packs() {
-      return this.scan.supportedPacks();
-   }
-
-   @Override
    public ShaderPackScanner.ScanResult scanResult() {
       return this.scan;
    }
@@ -73,18 +68,6 @@ final class InstalledShaderLifecycle implements ShaderLifecycle {
    @Override
    public boolean resourceReloading() {
       return this.resourceReloading;
-   }
-
-   @Override
-   public void reloadPacks() {
-      this.scan = this.host.scanPacks();
-   }
-
-   @Override
-   public CompletableFuture<Void> applySelection(boolean enabled, String selectedPackId) {
-      this.scan = this.host.scanPacks();
-      String normalizedPackId = this.normalizePackId(selectedPackId);
-      return this.apply(this.config.withSelection(enabled, normalizedPackId), true);
    }
 
    @Override
@@ -219,15 +202,5 @@ final class InstalledShaderLifecycle implements ShaderLifecycle {
 
       LOGGER.info("Caldera shader pack {} is gone; falling back to the built-in pack", this.config.selectedPackId());
       return this.apply(this.config.withSelection(this.config.enabled(), resolved), true);
-   }
-
-   /**
-    * 把一个包 id 收敛到"当前扫描结果里真实存在的那个，否则内置包"。
-    * <p>
-    * 判断本身已经收在 {@link ShaderPackScanner.ScanResult#resolveSelection}；这里保留一个私有入口
-    * 只是因为它是本类的调用点，读起来比在 {@code applySelection} 里现取扫描结果清楚。
-    */
-   private String normalizePackId(String selectedPackId) {
-      return this.scan.resolveSelection(selectedPackId);
    }
 }

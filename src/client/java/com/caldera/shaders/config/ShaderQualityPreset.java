@@ -1,67 +1,24 @@
 package com.caldera.shaders.config;
 
-import java.util.Locale;
-import net.minecraft.network.chat.Component;
-
+/**
+ * 阴影质量档位。
+ * <p>
+ * 它同时是**下标**（{@code values()[quality]}，质量在包里就是一个 0..4 的数）与**名字**（{@code OFF}
+ * 表示关着），而 {@code enabled()} 就是后者。
+ * <p>
+ * 迁移前还带着一套没人用的第二词汇表：两个字段（序列化名与层级号）、两个访问器、一个
+ * {@code displayName()} 与一个 {@code fromSerializedName()}，外加一个合成出来的 {@code $values()}。
+ * 一个调用者都没有——档位从来不是从字符串读出来的，而是下标。删掉它们之后这个 enum 只剩真实存在的
+ * 那两面。
+ */
 public enum ShaderQualityPreset {
-   OFF("off", 0),
-   LOW("low", 1),
-   MEDIUM("medium", 2),
-   HIGH("high", 3),
-   ULTRA("ultra", 4);
-
-   private final String serializedName;
-   private final int tier;
-
-   private ShaderQualityPreset(String serializedName, int tier) {
-      this.serializedName = serializedName;
-      this.tier = tier;
-   }
-
-   public String serializedName() {
-      return this.serializedName;
-   }
-
-   public int tier() {
-      return this.tier;
-   }
+   OFF,
+   LOW,
+   MEDIUM,
+   HIGH,
+   ULTRA;
 
    public boolean enabled() {
       return this != OFF;
-   }
-
-   public Component displayName() {
-      String var10000;
-      switch (this.ordinal()) {
-         case 0 -> var10000 = "Off";
-         case 1 -> var10000 = "Low";
-         case 2 -> var10000 = "Medium";
-         case 3 -> var10000 = "High";
-         case 4 -> var10000 = "Ultra";
-         default -> throw new MatchException((String)null, (Throwable)null);
-      }
-
-      return Component.literal(var10000);
-   }
-
-   public static ShaderQualityPreset fromSerializedName(String serializedName) {
-      if (serializedName != null && !serializedName.isBlank()) {
-         String normalized = serializedName.toLowerCase(Locale.ROOT);
-
-         for(ShaderQualityPreset preset : values()) {
-            if (preset.serializedName.equals(normalized)) {
-               return preset;
-            }
-         }
-
-         return MEDIUM;
-      } else {
-         return MEDIUM;
-      }
-   }
-
-   // $FF: synthetic method
-   private static ShaderQualityPreset[] $values() {
-      return new ShaderQualityPreset[]{OFF, LOW, MEDIUM, HIGH, ULTRA};
    }
 }

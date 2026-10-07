@@ -194,23 +194,21 @@ public final class GraphShaderSources {
                return null;
             } else {
                final HashSet<String> imported = new HashSet<>();
-               return String.join("", (new NativeShaderPreprocessor() {
-
-                   public String applyImport(boolean local, String name) {
-                     if (!imported.add(name)) {
-                        return null;
-                     } else {
-                        Identifier include = Identifier.parse(name);
-                        String var10000 = include.getNamespace();
-                        String body = GraphShaderSources.NativeSources.text("assets/" + var10000 + "/shaders/include/" + include.getPath());
-                        if (body == null) {
-                           throw new IllegalArgumentException("Missing shader include " + name);
-                        } else {
-                           return body;
-                        }
-                     }
+               return NativeShaderPreprocessor.expand(source, name -> {
+                  // 同一个 include 只展开一次：第二次返回 null，展开侧把它换成空。
+                  if (!imported.add(name)) {
+                     return null;
                   }
-               }).process(source));
+
+                  Identifier include = Identifier.parse(name);
+                  String namespace = include.getNamespace();
+                  String body = GraphShaderSources.NativeSources.text("assets/" + namespace + "/shaders/include/" + include.getPath());
+                  if (body == null) {
+                     throw new IllegalArgumentException("Missing shader include " + name);
+                  }
+
+                  return body;
+               });
             }
          }
       }

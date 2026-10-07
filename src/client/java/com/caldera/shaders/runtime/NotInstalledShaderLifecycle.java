@@ -50,11 +50,6 @@ final class NotInstalledShaderLifecycle implements ShaderLifecycle {
    }
 
    @Override
-   public List<ShaderPackScanner.AvailableShaderPack> packs() {
-      return EMPTY_SCAN.supportedPacks();
-   }
-
-   @Override
    public ShaderPackScanner.ScanResult scanResult() {
       return EMPTY_SCAN;
    }
@@ -77,15 +72,6 @@ final class NotInstalledShaderLifecycle implements ShaderLifecycle {
    }
 
    /** 空操作：没有扫描结果可刷新。 */
-   @Override
-   public void reloadPacks() {
-   }
-
-   @Override
-   public CompletableFuture<Void> applySelection(boolean enabled, String selectedPackId) {
-      return notInstalled();
-   }
-
    @Override
    public CompletableFuture<Void> applyConfig(ShaderConfig nextConfig, boolean forcePackRebuild) {
       return notInstalled();

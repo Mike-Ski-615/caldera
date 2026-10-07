@@ -3,7 +3,6 @@ package com.caldera.shaders.runtime;
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -58,10 +57,6 @@ public final class ShaderRuntime {
       return current.config();
    }
 
-   public static List<ShaderPackScanner.AvailableShaderPack> packs() {
-      return current.packs();
-   }
-
    /** 最近一次扫描的完整结果（含被忽略的条目）；界面读它，所以是缓存而不是重新读盘。 */
    public static ShaderPackScanner.ScanResult scanResult() {
       return current.scanResult();
@@ -78,14 +73,6 @@ public final class ShaderRuntime {
 
    public static boolean resourceReloading() {
       return current.resourceReloading();
-   }
-
-   public static void reloadPacks() {
-      current.reloadPacks();
-   }
-
-   public static CompletableFuture<Void> applySelection(boolean enabled, String selectedPackId) {
-      return current.applySelection(enabled, selectedPackId);
    }
 
    public static CompletableFuture<Void> applyConfig(ShaderConfig nextConfig, boolean forcePackRebuild) {

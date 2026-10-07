@@ -50,13 +50,15 @@ import java.util.function.Supplier;
 public final class ShadersScreen extends Screen {
 	private static final Logger LOGGER = LogUtils.getLogger();
 
-	// 面板配色。原先它们在一个抽象基类里，而那个基类只有一个子类、也没提供任何抽象，
-	// 只是把代码藏到了另一个文件里，所以合并进来。条目类与它同包，直接引用。
+	// 面板配色。**两个屏幕共用这一份**：它原先在一个抽象基类里也有一份（写作十进制，数值完全相同），
+	// 而那个基类只有一个子类、没提供任何抽象，只是把代码藏到了另一个文件里——现在它并进了设置屏，
+	// 颜色只在这里声明。
 	static final int PANEL_BACKGROUND = 0xD0141B24;
 	static final int PANEL_BORDER = 0xFF516579;
 	static final int PANEL_ACCENT = 0xFFB38A49;
 	static final int TEXT_PRIMARY = 0xFFF6F8FB;
 	static final int TEXT_SECONDARY = 0xFFB7C2CE;
+	static final int TEXT_MUTED = 0xFF8A97A6;
 	static final int STATUS_SUCCESS = 0xFFA6E3A1;
 	static final int STATUS_ERROR = 0xFFF3A6A6;
 
@@ -171,18 +173,19 @@ public final class ShadersScreen extends Screen {
 		ShaderPanelLayout.Layout layout = this.panelLayout();
 		this.fillPanel(extractor, layout.listPanel());
 		if (!layout.compact()) {
-			this.fillPanel(extractor, layout.sidePanel());
-			extractor.text(this.font, Component.translatable("caldera.screen.side.title"), layout.sideTextX(), layout.sideTitleY(), TEXT_PRIMARY, true);
-			extractor.text(this.font, this.appliedLine(), layout.sideTextX(), layout.appliedY(), TEXT_SECONDARY);
+			ShaderPanelLayout.Side side = layout.side();
+			this.fillPanel(extractor, side.panel());
+			extractor.text(this.font, Component.translatable("caldera.screen.side.title"), side.textX(), side.titleY(), TEXT_PRIMARY, true);
+			extractor.text(this.font, this.appliedLine(), side.textX(), side.appliedY(), TEXT_SECONDARY);
 			extractor.text(
 					this.font,
 					Component.translatable("caldera.screen.side.selected", this.packLabelText(this.pendingPackId)),
-					layout.sideTextX(),
-					layout.selectedY(),
+					side.textX(),
+					side.selectedY(),
 					state.hasPendingPackChange() ? PANEL_ACCENT : TEXT_SECONDARY);
 			Component warning = this.sidePanelWarning();
 			if (warning != null) {
-				extractor.textWithWordWrap(this.font, warning, layout.sideTextX(), layout.warningY(), layout.sideTextWidth(), STATUS_ERROR);
+				extractor.textWithWordWrap(this.font, warning, side.textX(), side.warningY(), side.textWidth(), STATUS_ERROR);
 			}
 		}
 
@@ -203,7 +206,7 @@ public final class ShadersScreen extends Screen {
 					this.font,
 					Component.translatable("caldera.screen.unsupported", this.unsupportedPacks().size()),
 					layout.textX(),
-					layout.unsupportedY(),
+					layout.side().unsupportedY(),
 					STATUS_ERROR);
 		}
 		super.extractRenderState(extractor, mouseX, mouseY, partialTick);
@@ -500,7 +503,19 @@ public final class ShadersScreen extends Screen {
 		this.status = inProgressText;
 		this.busy = true;
 
-		CompletableFuture<Void> completion = work.get();
+		CompletableFuture<Void> completion;
+		try {
+			completion = work.get();
+		} catch (RuntimeException failure) {
+			// 发起动作本身就抛了：没有 future 可等，所以下面那条 whenComplete 永远不会跑。
+			// 原先这里会让 busy 永远为 true——五个会读盘或发起重载的按钮从此点不动。
+			this.busy = false;
+			this.statusError = true;
+			this.status = failureText;
+			this.refreshInteractivity();
+			return;
+		}
+
 		// 配置与开关的改动是**同步**的，所以这里立刻刷新一次，
 		// 界面马上反映新的开关状态与"操作中"。
 		this.refreshInteractivity();

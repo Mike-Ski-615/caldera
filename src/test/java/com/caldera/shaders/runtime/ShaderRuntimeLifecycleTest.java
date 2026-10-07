@@ -54,7 +54,7 @@ class ShaderRuntimeLifecycleTest {
 
 		assertFalse(ShaderRuntime.resourceReloading());
 		assertFalse(ShaderRuntime.shadersEnabled());
-		assertTrue(ShaderRuntime.packs().isEmpty());
+		assertTrue(ShaderRuntime.scanResult().supportedPacks().isEmpty());
 
 		ShaderConfig fallback = ShaderRuntime.config();
 		assertNotNull(fallback);
@@ -64,9 +64,9 @@ class ShaderRuntimeLifecycleTest {
 		assertTrue(apply.isCompletedExceptionally());
 		assertEquals("Caldera shader runtime is not installed", messageOf(apply));
 
-		CompletableFuture<Void> selection = ShaderRuntime.applySelection(true, "__builtin__");
-		assertTrue(selection.isCompletedExceptionally());
-		assertEquals("Caldera shader runtime is not installed", messageOf(selection));
+		CompletableFuture<Void> refresh = ShaderRuntime.refresh();
+		assertTrue(refresh.isCompletedExceptionally());
+		assertEquals("Caldera shader runtime is not installed", messageOf(refresh));
 	}
 
 	// ------------------------------------------------------------ init
@@ -224,43 +224,6 @@ class ShaderRuntimeLifecycleTest {
 	// ------------------------------------------------------------ 选择与关闭
 
 	@Test
-	void applySelectionNormalisesAnUnknownPackIdToTheBuiltinOne() {
-		this.host.stored = new ShaderConfig(true, "__builtin__");
-		this.host.scanned = List.of(FakeShaderHost.pack("Nice"));
-		ShaderRuntime.init();
-
-		ShaderRuntime.applySelection(true, "Ghost");
-
-		assertEquals("__builtin__", this.host.preparedConfigs.getFirst().selectedPackId(),
-				"不在扫描结果里的 id 必须被归一化为内置包");
-	}
-
-	@Test
-	void applySelectionKeepsAKnownPackId() {
-		this.host.stored = new ShaderConfig(true, "__builtin__");
-		this.host.scanned = List.of(FakeShaderHost.pack("Nice"));
-		ShaderRuntime.init();
-
-		ShaderRuntime.applySelection(true, "Nice");
-
-		assertEquals("Nice", this.host.preparedConfigs.getFirst().selectedPackId());
-	}
-
-	@Test
-	void reloadPacksRefreshesTheVisiblePackList() {
-		this.host.scanned = List.of(FakeShaderHost.pack("A"), FakeShaderHost.pack("B"));
-		ShaderRuntime.init();
-
-		assertEquals(2, ShaderRuntime.packs().size());
-
-		this.host.events.clear();
-		ShaderRuntime.reloadPacks();
-
-		assertEquals(List.of("scanPacks"), this.host.events);
-		assertEquals(2, ShaderRuntime.packs().size());
-	}
-
-	@Test
 	void closeDiscardsPacksAndClosesGpuResources() {
 		this.host.stored = new ShaderConfig(true, "__builtin__");
 		this.host.scanned = List.of(FakeShaderHost.pack("Nice"));
@@ -268,7 +231,7 @@ class ShaderRuntimeLifecycleTest {
 
 		ShaderRuntime.close();
 
-		assertTrue(ShaderRuntime.packs().isEmpty());
+		assertTrue(ShaderRuntime.scanResult().supportedPacks().isEmpty());
 		assertEquals(1, this.host.closeRendererCount);
 		assertEquals(1, this.host.closeReloadableResourcesCount);
 	}

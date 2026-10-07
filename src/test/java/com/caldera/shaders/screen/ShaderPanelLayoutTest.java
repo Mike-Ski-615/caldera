@@ -10,6 +10,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -37,19 +38,18 @@ class ShaderPanelLayoutTest {
 	void wideLayoutPutsTheSidePanelRightOfTheMainPanelAndAlignsTheirEdges() {
 		Layout layout = ShaderPanelLayout.compute(WIDE_WIDTH, WIDE_HEIGHT);
 		assertFalse(layout.compact());
-		assertTrue(layout.sidePanel().x() > layout.listPanel().right(), "侧栏应在列表面板右侧且不重叠");
-		assertTrue(layout.sidePanel().x() - layout.listPanel().right() < 40, "两块面板之间的间隙应当是常数级的窄缝");
-		assertEquals(layout.listPanel().y(), layout.sidePanel().y(), "两个面板应当上对齐");
-		assertEquals(layout.listPanel().height(), layout.sidePanel().height(), "两个面板应当等高");
+		assertTrue(layout.side().panel().x() > layout.listPanel().right(), "侧栏应在列表面板右侧且不重叠");
+		assertTrue(layout.side().panel().x() - layout.listPanel().right() < 40, "两块面板之间的间隙应当是常数级的窄缝");
+		assertEquals(layout.listPanel().y(), layout.side().panel().y(), "两个面板应当上对齐");
+		assertEquals(layout.listPanel().height(), layout.side().panel().height(), "两个面板应当等高");
 	}
 
 	@Test
 	void wideLayoutStacksListUnsupportedLineAndStatusWithoutOverlap() {
 		Layout layout = ShaderPanelLayout.compute(WIDE_WIDTH, WIDE_HEIGHT);
-		assertTrue(layout.listBox().bottom() <= layout.unsupportedY(), "被忽略条目那一行必须在列表下方");
-		assertTrue(layout.unsupportedY() < layout.statusY(), "状态行必须在被忽略条目那一行下方");
+		assertTrue(layout.listBox().bottom() <= layout.side().unsupportedY(), "被忽略条目那一行必须在列表下方");
+		assertTrue(layout.side().unsupportedY() < layout.statusY(), "状态行必须在被忽略条目那一行下方");
 		assertTrue(layout.statusY() <= layout.listPanel().bottom(), "状态行必须在面板内");
-		assertTrue(true, "列表必须在面板内");
 	}
 
 	@Test
@@ -59,19 +59,22 @@ class ShaderPanelLayoutTest {
 		assertTrue(button(layout, Action.APPLY).bottom() <= button(layout, Action.RELOAD).y(), "应用按钮在重载按钮之上");
 		assertEquals(button(layout, Action.OPEN_FOLDER).y(), button(layout, Action.REFRESH).y(), "打开文件夹与刷新同一行");
 		assertTrue(button(layout, Action.OPEN_FOLDER).right() <= button(layout, Action.REFRESH).x(), "同一行的两个按钮不重叠");
-		assertTrue(button(layout, Action.DONE).bottom() <= layout.sidePanel().bottom(), "完成按钮必须在侧栏内");
+		assertTrue(button(layout, Action.DONE).bottom() <= layout.side().panel().bottom(), "完成按钮必须在侧栏内");
 
 		for (Rect rect : layout.buttons().values()) {
-			assertTrue(rect.x() >= layout.sidePanel().x(), "按钮必须在侧栏内(左)");
-			assertTrue(rect.right() <= layout.sidePanel().right(), "按钮必须在侧栏内(右)");
+			assertTrue(rect.x() >= layout.side().panel().x(), "按钮必须在侧栏内(左)");
+			assertTrue(rect.right() <= layout.side().panel().right(), "按钮必须在侧栏内(右)");
 		}
 	}
 
 	@Test
-	void compactLayoutUsesTheWholePanelAsOneArea() {
+	void compactLayoutHasNoSideGeometryAtAll() {
 		Layout layout = ShaderPanelLayout.compute(COMPACT_WIDTH, COMPACT_HEIGHT);
 		assertTrue(layout.compact());
-		assertEquals(layout.listPanel(), layout.sidePanel(), "紧凑布局没有独立侧栏");
+
+		// 原先这里断言 sidePanel() == listPanel()。现在紧凑布局**没有**侧栏几何：
+		// 读到 0 以为有意义的错写不出来，代价是必须问一次。
+		assertThrows(IllegalStateException.class, layout::side);
 	}
 
 	@Test

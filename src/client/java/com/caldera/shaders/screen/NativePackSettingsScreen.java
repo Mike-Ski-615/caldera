@@ -4,6 +4,7 @@ import com.caldera.shaders.graph.NativePackRuntime;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 
@@ -14,13 +15,18 @@ import java.util.List;
  * 单个光影包的选项设置界面。
  * <p>
  * 这是 0.5.1 独有的能力，0.3.1 没有任何对应物。它按 0.3.1 的观感重做过：文案全部走翻译键、
- * 沿用 {@link ShadersScreen} 那套面板配色与 {link ShaderScreenBase} 的管道。
+ * 沿用 {@link ShadersScreen} 那套面板配色与它的面板底色画法。
+ * <p>
+ * 它原先继承一个 {@code ShaderScreenBase}——那个基类只有一个子类、没提供任何抽象，只是把八个颜色
+ * 常量与四个方法藏到了另一个文件里；而颜色在那一侧写作十进制、在 {@link ShadersScreen} 那一侧写作
+ * 十六进制，同一个值两处写法（已逐个核对过：完全相等）。合并之后调色板只有一处来源。
  * <p>
  * {@code status} 是 {@link Component} 而不是 {@code String}：{@code Component.translatable(...)}
  * 的 {@code getString()} 返回的是**翻译键本身**，真正的解析发生在渲染时，所以状态文案必须以组件
  * 形式一路带到 {@code graphics.text}。
  */
-final class NativePackSettingsScreen extends ShaderScreenBase {
+final class NativePackSettingsScreen extends Screen {
+	private final Screen lastScreen;
 	private final String packId;
 	private PackSettingsModel model;
 	private Component status;
@@ -35,7 +41,8 @@ final class NativePackSettingsScreen extends ShaderScreenBase {
 	private final List<String> visible = new ArrayList<>();
 
 	NativePackSettingsScreen(ShadersScreen parent, String packId) {
-		super(parent, Component.translatable("caldera.settings.title"));
+		super(Component.translatable("caldera.settings.title"));
+		this.lastScreen = parent;
 		this.packId = packId;
 
 		try {
@@ -127,9 +134,9 @@ final class NativePackSettingsScreen extends ShaderScreenBase {
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		this.fillPanel(graphics, this.x - 8, 8, this.panelWidth + 16, this.height - 12);
-		graphics.text(this.font, this.title, this.x, 18, -591621);
+		graphics.text(this.font, this.title, this.x, 18, ShadersScreen.TEXT_PRIMARY);
 		Component subtitle = Component.translatable(this.advanced ? "caldera.settings.subtitle.advanced" : "caldera.settings.subtitle.basic");
-		graphics.textWithWordWrap(this.font, subtitle, this.x, 32, this.panelWidth, -4734258);
+		graphics.textWithWordWrap(this.font, subtitle, this.x, 32, this.panelWidth, ShadersScreen.TEXT_SECONDARY);
 		int cell = (this.panelWidth - 12 * (this.columns - 1)) / this.columns;
 
 		for(int i = 0; i < this.visible.size(); ++i) {
@@ -142,17 +149,17 @@ final class NativePackSettingsScreen extends ShaderScreenBase {
 							? Component.literal(this.model.group(key))
 							: Component.literal(this.model.help(key).split("\\.")[0]);
 			// 选项按钮下方那行只有一行的高度，所以按宽度切出第一行，而不是让它换行压到下一格。
-			this.drawFirstLine(graphics, detail, left + 2, top + 23, cell - 4, -7694426);
+			this.drawFirstLine(graphics, detail, left + 2, top + 23, cell - 4, ShadersScreen.TEXT_MUTED);
 		}
 
 		if (this.pages > 1) {
-			graphics.text(this.font, Component.literal((this.page + 1) + " / " + this.pages), this.x + this.panelWidth / 2 - 12, this.height - 70, -4734258);
+			graphics.text(this.font, Component.literal((this.page + 1) + " / " + this.pages), this.x + this.panelWidth / 2 - 12, this.height - 70, ShadersScreen.TEXT_SECONDARY);
 		}
 
 		Component message = this.status != null
 				? this.status
 				: Component.translatable(this.model != null && this.model.dirty() ? "caldera.settings.status.unsaved" : "caldera.settings.status.hint");
-		this.drawFirstLine(graphics, message, this.x, this.height - 45, this.panelWidth, this.error ? -809306 : -4734258);
+		this.drawFirstLine(graphics, message, this.x, this.height - 45, this.panelWidth, this.error ? ShadersScreen.STATUS_ERROR : ShadersScreen.TEXT_SECONDARY);
 		super.extractRenderState(graphics, mouseX, mouseY, partialTick);
 	}
 
@@ -161,6 +168,42 @@ final class NativePackSettingsScreen extends ShaderScreenBase {
 		List<FormattedCharSequence> lines = this.font.split(text, width);
 		if (!lines.isEmpty()) {
 			graphics.text(this.font, lines.getFirst(), x, y, color);
+		}
+	}
+
+	/**
+	 * 这一屏的面板底色。与列表屏共用同一组常量（见 {@link ShadersScreen}），所以两处的观感不会
+	 * 各自漂移。
+	 */
+	private void fillPanel(GuiGraphicsExtractor graphics, int x, int y, int width, int height) {
+		graphics.fill(x, y, x + width, y + height, ShadersScreen.PANEL_BACKGROUND);
+		graphics.outline(x, y, width, height, ShadersScreen.PANEL_BORDER);
+		graphics.fill(x + 1, y + 1, x + width - 1, y + 5, ShadersScreen.PANEL_ACCENT);
+	}
+
+	/**
+	 * 只在自己没有世界背景时画模糊：有世界时那一层由游戏的关卡渲染提供，再画一次会压暗画面。
+	 * <p>
+	 * 这是原先那个基类唯一真正"共用"的东西——两个屏幕都要它，所以合并之后这份行为留在设置屏这一侧，
+	 * 而 {@link ShadersScreen} 有它自己的同名实现（两者的判断一字不差）。
+	 */
+	@Override
+	public void extractBackground(GuiGraphicsExtractor guiGraphicsExtractor, int mouseX, int mouseY, float partialTick) {
+		if (this.minecraft == null || this.minecraft.level == null) {
+			super.extractBackground(guiGraphicsExtractor, mouseX, mouseY, partialTick);
+		}
+	}
+
+	/** 光影设置不该让单人游戏暂停。 */
+	@Override
+	public boolean isPauseScreen() {
+		return false;
+	}
+
+	@Override
+	public void onClose() {
+		if (this.minecraft != null) {
+			this.minecraft.setScreenAndShow(this.lastScreen);
 		}
 	}
 }

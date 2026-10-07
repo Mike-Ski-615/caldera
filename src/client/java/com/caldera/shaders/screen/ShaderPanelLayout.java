@@ -76,13 +76,15 @@ final class ShaderPanelLayout {
 	}
 
 	/**
-	 * 一次算完。紧凑布局下 {@code sidePanel} 与 {@code listPanel} 相同，且 {@code side*} 与
-	 * {@code unsupportedY} 无意义（界面在紧凑模式下不画侧栏与被忽略条目那一行）。
+	 * 一次算完。紧凑布局下没有侧栏，{@link #side()} 会大声失败。
+	 * <p>
+	 * 宽屏专有的那几项收在 {@link Side} 里，而不是与共用项并排放在这里：它们原先在紧凑模式下是
+	 * {@code 0}，而"读到 {@code 0} 以为有意义"正是这种记录最容易犯的错——现在的形状让那句话根本
+	 * 写不出来。
 	 */
 	record Layout(
 			boolean compact,
 			Rect listPanel,
-			Rect sidePanel,
 			Rect listBox,
 			Map<Action, Rect> buttons,
 			int textX,
@@ -90,13 +92,7 @@ final class ShaderPanelLayout {
 			int titleY,
 			int subtitleY,
 			int statusY,
-			int unsupportedY,
-			int sideTextX,
-			int sideTextWidth,
-			int sideTitleY,
-			int appliedY,
-			int selectedY,
-			int warningY) {
+			Side side) {
 
 		/** 按动作取矩形。漏算某个动作会**大声失败**，而不是安静地拿到一个越界坐标。 */
 		Rect button(Action action) {
@@ -106,6 +102,28 @@ final class ShaderPanelLayout {
 			}
 			return rect;
 		}
+
+		/** 宽屏侧栏。紧凑布局下没有它，所以这里抛，而不是给一份全 0 的几何。 */
+		public Side side() {
+			if (this.side == null) {
+				throw new IllegalStateException("紧凑布局没有侧栏");
+			}
+			return this.side;
+		}
+	}
+
+	/**
+	 * 宽屏专有的那一块：侧栏面板、它的几行文字，以及"被忽略条目"那一行。
+	 */
+	record Side(
+			Rect panel,
+			int textX,
+			int textWidth,
+			int titleY,
+			int appliedY,
+			int selectedY,
+			int warningY,
+			int unsupportedY) {
 	}
 
 	static Layout compute(int screenWidth, int screenHeight) {
@@ -160,7 +178,6 @@ final class ShaderPanelLayout {
 		return new Layout(
 				true,
 				panel,
-				panel,
 				listBox,
 				Map.copyOf(buttons),
 				textX,
@@ -168,13 +185,8 @@ final class ShaderPanelLayout {
 				titleY,
 				subtitleY,
 				statusY,
-				0,
-				0,
-				0,
-				0,
-				0,
-				0,
-				0);
+				// 紧凑布局没有侧栏：那 7 个宽屏字段在这里不存在，而不是 7 个 0。
+				null);
 	}
 
 	private static Layout computeWide(Rect listPanel, Rect sidePanel, int textX, int textWidth, int titleY, int subtitleY) {
@@ -207,7 +219,6 @@ final class ShaderPanelLayout {
 		return new Layout(
 				false,
 				listPanel,
-				sidePanel,
 				listBox,
 				Map.copyOf(buttons),
 				textX,
@@ -215,12 +226,14 @@ final class ShaderPanelLayout {
 				titleY,
 				subtitleY,
 				listPanel.bottom() - WIDE_STATUS_BOTTOM_INSET,
-				listPanel.bottom() - WIDE_UNSUPPORTED_BOTTOM_INSET,
-				sideTextX,
-				sideTextWidth,
-				sidePanel.y() + SIDE_TITLE_OFFSET,
-				sidePanel.y() + SIDE_APPLIED_OFFSET,
-				sidePanel.y() + SIDE_SELECTED_OFFSET,
-				sidePanel.y() + SIDE_WARNING_OFFSET);
+				new Side(
+						sidePanel,
+						sideTextX,
+						sideTextWidth,
+						sidePanel.y() + SIDE_TITLE_OFFSET,
+						sidePanel.y() + SIDE_APPLIED_OFFSET,
+						sidePanel.y() + SIDE_SELECTED_OFFSET,
+						sidePanel.y() + SIDE_WARNING_OFFSET,
+						listPanel.bottom() - WIDE_UNSUPPORTED_BOTTOM_INSET));
 	}
 }

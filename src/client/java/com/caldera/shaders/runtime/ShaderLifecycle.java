@@ -3,7 +3,6 @@ package com.caldera.shaders.runtime;
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -30,9 +29,6 @@ interface ShaderLifecycle {
    /** 当前生效的设置。 */
    ShaderConfig config();
 
-   /** 最近一次扫描里受支持的包。 */
-   List<ShaderPackScanner.AvailableShaderPack> packs();
-
    /** 最近一次扫描的**完整**结果（含被忽略的条目）；界面读它，所以是缓存而不是重新读盘。 */
    ShaderPackScanner.ScanResult scanResult();
 
@@ -53,12 +49,6 @@ interface ShaderLifecycle {
     * 二十多个 mixin 站点拿它当门闸，所以它在未安装时必须答 {@code false} 而不是抛。
     */
    boolean resourceReloading();
-
-   /** 重新扫描包目录，刷新 {@link #packs()}。 */
-   void reloadPacks();
-
-   /** 提交"开关 + 选中的包"，并让它在一次资源重载之后生效。 */
-   CompletableFuture<Void> applySelection(boolean enabled, String selectedPackId);
 
    /** 提交一份完整设置。 */
    CompletableFuture<Void> applyConfig(ShaderConfig nextConfig, boolean forcePackRebuild);
