@@ -17,10 +17,6 @@ public final class ShadowService {
       return NativePackRuntime.shadowQuality() > 0 && NativePackRuntime.shadowFrameReady();
    }
 
-   public static boolean entities() {
-      return enabled();
-   }
-
    public static ShaderQualityPreset quality() {
       return NativePackRuntime.shadowQuality() > 0 ? ShaderQualityPreset.values()[NativePackRuntime.shadowQuality()] : ShaderQualityPreset.OFF;
    }

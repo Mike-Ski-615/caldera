@@ -21,12 +21,14 @@ import org.joml.Vector3f;
 import org.joml.Vector4f;
 
 public final class DirectionalShadowRenderer {
-   private static final int CASCADE_COUNT = 4;
-   private static final int ENTITY_CASCADE_COUNT = 1;
-   private static final int ENTITY_TARGET_COUNT = 2;
+   /**
+    * 日月分离度超过这个区间就不再淡出影子（smoothstep 的两个边界）。
+    * <p>
+    * 这两个常量原先根本没被用上——L167 直接写了 0.02F/0.2F。有常量却用字面量比纯死代码更会骗人：
+    * 改常量的人会以为生效了，而什么也没发生。
+    */
    private static final float CELESTIAL_FADE_START = 0.02F;
    private static final float CELESTIAL_FADE_END = 0.2F;
-   private static final float SHADOW_STRENGTH = 1.0F;
    private static final int[] CASCADE_UPDATE_INTERVALS = new int[]{3, 8, 16, 32};
    private static final int[] ENTITY_UPDATE_INTERVALS = new int[]{1, 1, 1, 1};
    private static final double[] CASCADE_MOVEMENT_LIMITS = new double[]{(double)1.5F, (double)4.0F, (double)12.0F, (double)24.0F};
@@ -61,8 +63,8 @@ public final class DirectionalShadowRenderer {
    private final long[] renderedFrameSerial = new long[4];
    private final long[] renderedTerrainRevision = new long[4];
    private final long[] renderedEntityFrameSerial = new long[4];
-   private final ByteBuffer cascadeUpload = ByteBuffer.allocateDirect(144).order(ByteOrder.nativeOrder());
-   private final ByteBuffer shadowUpload = ByteBuffer.allocateDirect(416).order(ByteOrder.nativeOrder());
+   private final ByteBuffer cascadeUpload = ByteBuffer.allocateDirect(CASCADE_UBO_BYTES).order(ByteOrder.nativeOrder());
+   private final ByteBuffer shadowUpload = ByteBuffer.allocateDirect(SHADOW_DATA_BYTES).order(ByteOrder.nativeOrder());
    private GpuBufferSlice cascadeSlice;
    private GpuBufferSlice shadowDataSlice;
    private int activeCascadeCount;
@@ -164,7 +166,7 @@ public final class DirectionalShadowRenderer {
          if (levelRenderState.skyRenderState != null) {
             CustomCelestials.setCelestialDirection(levelRenderState.skyRenderState.sunAngle, this.sunDirection);
             CustomCelestials.setCelestialDirection(levelRenderState.skyRenderState.moonAngle, this.moonDirection);
-            this.celestialShadowFade = smoothstep(0.02F, 0.2F, Math.abs(this.sunDirection.y - this.moonDirection.y));
+            this.celestialShadowFade = smoothstep(CELESTIAL_FADE_START, CELESTIAL_FADE_END, Math.abs(this.sunDirection.y - this.moonDirection.y));
             this.lightDirection.set(this.sunDirection.y >= this.moonDirection.y ? this.sunDirection : this.moonDirection);
             if (this.lightDirection.y < 0.08F) {
                this.lightDirection.y = 0.08F;
@@ -227,7 +229,7 @@ public final class DirectionalShadowRenderer {
                }
 
                this.cascadeMatrices[i].set(this.renderedCascadeMatrices[i]).translate((float)(this.cameraX - this.renderedCameraX[i]), (float)(this.cameraY - this.renderedCameraY[i]), (float)(this.cameraZ - this.renderedCameraZ[i]));
-               boolean entityUpdate = ShadowService.entities() && i < 1 && (layoutChanged || !this.entityCascadeInitialized[i] || update || this.frameSerial - this.renderedEntityFrameSerial[i] >= (long)ENTITY_UPDATE_INTERVALS[i]);
+               boolean entityUpdate = ShadowService.enabled() && i < 1 && (layoutChanged || !this.entityCascadeInitialized[i] || update || this.frameSerial - this.renderedEntityFrameSerial[i] >= (long)ENTITY_UPDATE_INTERVALS[i]);
                this.entityCascadeUpdates[i] = entityUpdate;
                if (entityUpdate) {
                   this.renderedEntityFrameSerial[i] = this.frameSerial;
@@ -428,7 +430,7 @@ public final class DirectionalShadowRenderer {
       for(int i = 0; i < 4; ++i) {
          sameSizes &= this.targetSizes[i] == sizes[i];
          if (i < 2) {
-            sameSizes &= this.entityTargetSizes[i] == Math.min(maxShadowSize, ShadowService.entities() ? entityTargetSize(quality, sizes, i) : 1);
+            sameSizes &= this.entityTargetSizes[i] == Math.min(maxShadowSize, ShadowService.enabled() ? entityTargetSize(quality, sizes, i) : 1);
          }
       }
 
@@ -445,7 +447,7 @@ public final class DirectionalShadowRenderer {
                nextTerrain[i] = descriptor.allocate();
                descriptor.prepare(nextTerrain[i]);
                if (i < 2) {
-                  int entitySize = Math.min(maxShadowSize, ShadowService.entities() ? entityTargetSize(quality, sizes, i) : 1);
+                  int entitySize = Math.min(maxShadowSize, ShadowService.enabled() ? entityTargetSize(quality, sizes, i) : 1);
                   nextEntitySizes[i] = entitySize;
                   RenderTargetDescriptor entityDescriptor = new RenderTargetDescriptor(entitySize, entitySize, new RenderTargetDescriptor.TextureProperties(CLEAR, GpuFormat.R8_UNORM), TextureProperties.DEFAULT_DEPTH);
                   nextEntities[i] = entityDescriptor.allocate();
@@ -484,7 +486,7 @@ public final class DirectionalShadowRenderer {
    }
 
    public static void retireUnused() {
-      if (instance != null && !ShadowService.entities() && NativePackRuntime.shadowQuality() <= 0) {
+      if (instance != null && !ShadowService.enabled() && NativePackRuntime.shadowQuality() <= 0) {
          DirectionalShadowRenderer old = instance;
          instance = null;
          RenderSystem.queueFencedTask(() -> old.destroyTargets());

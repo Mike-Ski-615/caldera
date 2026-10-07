@@ -306,10 +306,15 @@ public final class GraphGpuSmoke {
                CommandSourceStack source = server.createCommandSourceStack().withSuppressedOutput();
                // withSuppressedOutput()：截图门禁比的是画面，而命令回显会盖在画面左下角。
                // 关 gamerule 没用——来源是服务端控制台，它的回显本来就会广播给所有玩家。
+               //
+               // preset 是"时间"与"机位"两个正交选择拼出来的名字：
+               //   night / land / underwater 各管一件事，nightland 是"夜 + 那个固定机位"的组合。
+               //   组合是必要的：影子在夜里最显眼，而门禁又必须有固定机位才可比。
+               boolean night = preset.equals("night") || preset.equals("nightland");
                commands.performPrefixedCommand(source, "weather clear");
-               commands.performPrefixedCommand(source, "time set " + (preset.equals("night") ? "18000" : "6000"));
+               commands.performPrefixedCommand(source, "time set " + (night ? "18000" : "6000"));
                commands.performPrefixedCommand(source, "gamemode spectator @a");
-               if (preset.equals("land")) {
+               if (preset.equals("land") || preset.equals("nightland")) {
                   commands.performPrefixedCommand(source, "execute as @a at @s run tp @s ~ ~6 ~ ~180 15");
                }
 

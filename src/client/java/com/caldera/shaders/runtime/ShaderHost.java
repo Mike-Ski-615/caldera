@@ -3,6 +3,7 @@ package com.caldera.shaders.runtime;
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
 import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.renderpearl.api.GpuFormat;
 import net.minecraft.client.multiplayer.ClientLevel;
 
 import java.util.List;
@@ -131,6 +132,21 @@ public interface ShaderHost {
 
 	/** 是否跑在开发环境里。只有开发环境才启用那些 smoke 开关。 */
 	boolean developmentEnvironment();
+
+	/**
+	 * 有效渲染距离（区块数）。
+	 * <p>
+	 * 阴影覆盖范围取它与阴影距离的较小者，所以要问游戏。
+	 */
+	int renderDistance();
+
+	/**
+	 * 某个格式能申请的纹理边长上限。
+	 * <p>
+	 * 照抄游戏那一形，而不是在这里合成一个 `maxShadowMapSize()`：后者会把"阴影贴图用
+	 * R8_UNORM 与 D32_FLOAT"这条 shadow 侧的知识塞到游戏边界这一头，放错了地方。
+	 */
+	int maxTextureSizeForFormat(GpuFormat format);
 
 	/**
 	 * 一份已经准备好、可以被激活或被丢弃的渲染器。

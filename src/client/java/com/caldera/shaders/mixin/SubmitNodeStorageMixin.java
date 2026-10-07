@@ -19,7 +19,7 @@ public abstract class SubmitNodeStorageMixin {
       cancellable = true
    )
    private void caldera$disableVanillaBlobShadows(PoseStack poseStack, float shadowRadius, List<EntityRenderState.ShadowPiece> shadowPieces, CallbackInfo ci) {
-      if (!ShaderRuntime.resourceReloading() && ShadowService.entities()) {
+      if (!ShaderRuntime.resourceReloading() && ShadowService.enabled()) {
          ci.cancel();
       }
 

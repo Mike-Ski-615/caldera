@@ -5,7 +5,6 @@ import net.caffeinemc.mods.sodium.client.render.chunk.terrain.TerrainRenderPass;
 import net.minecraft.client.renderer.chunk.ChunkSectionLayer;
 
 public final class SodiumShadowTerrainPasses {
-   private static final int CASCADE_COUNT = 4;
    private static final TerrainRenderPass[] SOLID = new TerrainRenderPass[4];
    private static final TerrainRenderPass[] CUTOUT = new TerrainRenderPass[4];
    private static final TerrainRenderPass[] COMBINED = new TerrainRenderPass[4];

@@ -11,6 +11,7 @@ import com.caldera.shaders.render.shadow.SodiumShadowTerrainRenderer;
 import com.caldera.shaders.render.shadow.SodiumTerrainShadowPipelines;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.renderpearl.api.GpuFormat;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -156,5 +157,15 @@ public final class MinecraftShaderHost implements ShaderHost {
 	@Override
 	public boolean developmentEnvironment() {
 		return FabricLoader.getInstance().isDevelopmentEnvironment();
+	}
+
+	@Override
+	public int renderDistance() {
+		return Minecraft.getInstance().options.getEffectiveRenderDistance();
+	}
+
+	@Override
+	public int maxTextureSizeForFormat(GpuFormat format) {
+		return RenderSystem.getDevice().getDeviceInfo().limits().maxTextureSizeForFormat(format);
 	}
 }

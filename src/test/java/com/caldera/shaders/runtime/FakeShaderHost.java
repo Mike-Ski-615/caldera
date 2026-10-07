@@ -3,11 +3,14 @@ package com.caldera.shaders.runtime;
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
 import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.renderpearl.api.GpuFormat;
 import net.minecraft.client.multiplayer.ClientLevel;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -203,6 +206,21 @@ public final class FakeShaderHost implements ShaderHost {
 	@Override
 	public boolean developmentEnvironment() {
 		return this.developmentEnvironment;
+	}
+
+	/** renderDistance() 的返回值。默认 12，一个不会让覆盖范围被截断的值。 */
+	public int renderDistance = 12;
+	/** maxTextureSizeForFormat() 的返回值；按格式记，未设过的一律 8192。 */
+	public final Map<GpuFormat, Integer> textureSizeLimits = new HashMap<>();
+
+	@Override
+	public int renderDistance() {
+		return this.renderDistance;
+	}
+
+	@Override
+	public int maxTextureSizeForFormat(GpuFormat format) {
+		return this.textureSizeLimits.getOrDefault(format, 8192);
 	}
 
 	/** 记录被激活的包 id 与被关闭的次数。 */

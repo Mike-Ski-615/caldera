@@ -35,8 +35,12 @@ import net.minecraft.client.renderer.oit.OitStage;
 import org.joml.Vector3f;
 
 public final class SodiumShadowTerrainRenderer {
-   private static final int CASCADE_COUNT = 4;
    private static final double[] PLAN_MOVEMENT_LIMITS = new double[]{(double)4.0F, (double)8.0F, (double)16.0F, (double)32.0F};
+   /**
+    * 缓存的 render-list plan 能容忍多少方向变化：光照方向与相机朝向的点积下限。
+    * <p>
+    * 原先它没被用上——L259 把 0.9925F 写了三遍。
+    */
    private static final float PLAN_DIRECTION_DOT = 0.9925F;
    private static final CascadePlan[] CACHED_PLANS = new CascadePlan[4];
    private static long terrainRevision;
@@ -256,7 +260,7 @@ public final class SodiumShadowTerrainRenderer {
          double dx = currentCameraX - this.cameraX;
          double dy = currentCameraY - this.cameraY;
          double dz = currentCameraZ - this.cameraZ;
-         return dx * dx + dy * dy + dz * dz <= movementLimit * movementLimit && this.lightDirection.dot(currentLightDirection) >= 0.9925F && this.cameraForward.dot(currentCameraForward) >= 0.9925F && Math.abs(this.cascadeEnd - currentCascadeEnd) < 0.5F;
+         return dx * dx + dy * dy + dz * dz <= movementLimit * movementLimit && this.lightDirection.dot(currentLightDirection) >= PLAN_DIRECTION_DOT && this.cameraForward.dot(currentCameraForward) >= PLAN_DIRECTION_DOT && Math.abs(this.cascadeEnd - currentCascadeEnd) < 0.5F;
       }
    }
 

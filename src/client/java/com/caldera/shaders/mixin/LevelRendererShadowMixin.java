@@ -113,7 +113,7 @@ public abstract class LevelRendererShadowMixin {
 
       this.caldera$nearShadowSubmitStorage.getSubmitsPerOrder().clear();
       this.caldera$hasNearShadowEntitySubmits = false;
-      if (!ShaderRuntime.resourceReloading() && ShadowService.entities()) {
+      if (!ShaderRuntime.resourceReloading() && ShadowService.enabled()) {
          DirectionalShadowPipelines.ensureInitialized();
          DirectionalShadowRenderer shadows = DirectionalShadowRenderer.get();
          this.caldera$shadowSubmitFilter = new DirectionalShadowSubmitFilter(this.caldera$nearShadowSubmitStorage, (double)Math.max(24.0F, shadows.entityCascadeEnd(0)));
