@@ -1,0 +1,41 @@
+{
+	"required": true,
+	"package": "com.caldera.shaders.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"GraphDeviceAccessor",
+		"GraphStorageTextureMixin",
+		"GraphStorageViewMixin",
+		"NativeSceneMixin",
+		"NativeWeatherMixin",
+		"NativeWorldProjectionMixin",
+		"NativeFrameBoundaryMixin",
+		"NativeSceneAttachmentsMixin",
+		"NativeRenderPassMixin",
+		"OptionsBackendMixin",
+		"CloudRendererMixin",
+		"LevelRendererPostMixin",
+		"LevelRendererShadowMixin",
+		"OptionsScreenMixin",
+		"RenderPipelinesAccessor",
+		"RenderTypeMixin",
+		"SkyRendererMixin",
+		"SubmitNodeStorageMixin",
+		"VulkanDeviceShaderCompilerMixin",
+        "NativePipelineCacheMixin",
+		"sodium.MaterialVertexFormatMixin",
+		"sodium.BlockMaterialMixin",
+		"sodium.FluidMaterialMixin",
+		"sodium.RenderRegionMixin",
+        "sodium.ShadowChunkPreparationMixin",
+        "sodium.ShadowPassIndexMixin",
+		"sodium.RenderSectionManagerAccessor",
+		"sodium.ShaderChunkRendererMixin",
+		"sodium.SodiumWorldRendererAccessor",
+		"sodium.SodiumWorldRendererMixin",
+		"sodium.TerrainRenderPassMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
