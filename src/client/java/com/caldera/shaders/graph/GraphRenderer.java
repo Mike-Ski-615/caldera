@@ -58,7 +58,14 @@ public final class GraphRenderer implements AutoCloseable {
    private final List<PackGraph.Pass> schedule;
    private final Map<PackGraph.Pass, RenderPipeline> pipelines = new LinkedHashMap<>();
    private final Map<PackGraph.Pass, ComputeProgram> computePipelines = new LinkedHashMap<>();
-   private final List<RenderPipeline> ownedPipelines = new ArrayList<>();
+   /**
+    * 这个渲染器注册进 {@link GraphShaderSources} 的那些管线归谁。
+    * <p>
+    * 原先这里是一个 {@code List<RenderPipeline> ownedPipelines}，创建时 add、close 时 forEach remove。
+    * 那张清单现在由 {@code GraphShaderSources} 按 owner 记着，于是字段本身没有了——少一份需要与
+    * 注册动作手工同步的东西。
+    */
+   private final GraphShaderSources.Owner shaderSources;
    private final Map<String, Image[]> images = new LinkedHashMap<>();
    private final GraphFrame frame = new GraphFrame();
    private HeldLightShadowRenderer heldShadows;
@@ -129,6 +136,7 @@ public final class GraphRenderer implements AutoCloseable {
       this.frame.heldLighting = (Double)graph.options().getOrDefault("HELD_LIGHTING", (double)0.0F) > (double)0.0F;
       this.materials = MaterialTable.compile(graph.materials());
       this.materials.vegetationWind = graph.options().containsKey("VEGETATION_WIND");
+      this.shaderSources = GraphShaderSources.owner("graph " + graph.name());
       // 这五族是纯容器，在字段初始化时就存在了，所以它们在这里登记，而不必等到构造器的后面。
       // 释放动作写在创建附近，"新加一族"就不再需要在两个地方各写一次。
       this.resources.onClose(() -> {
@@ -149,8 +157,7 @@ public final class GraphRenderer implements AutoCloseable {
       });
       // 这些管线是构建出来的描述符，真正的资源在 GraphShaderSources 的注册表里；注销就是释放。
       this.resources.onClose(() -> {
-         this.ownedPipelines.forEach(GraphShaderSources::remove);
-         this.ownedPipelines.clear();
+         GraphShaderSources.releaseAll(this.shaderSources);
       });
       GpuDevice device = RenderSystem.getDevice();
       this.sampler = device.createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST, 1, OptionalDouble.empty());
@@ -224,7 +231,6 @@ public final class GraphRenderer implements AutoCloseable {
       }
 
       RenderPipeline pipeline = builder.build();
-      this.ownedPipelines.add(pipeline);
       if (shadows) {
          this.shadowPostPipelines.add(pipeline);
       }
@@ -233,7 +239,7 @@ public final class GraphRenderer implements AutoCloseable {
          this.heldPostPipelines.add(pipeline);
       }
 
-      GraphShaderSources.put(pipeline, "#version 450\nlayout(location=0) out vec2 texCoord;\nvoid main() {\n\ttexCoord = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);\n\tgl_Position = vec4(texCoord * 2.0 - 1.0, 0.0, 1.0);\n}\n", fragment);
+      GraphShaderSources.put(this.shaderSources, pipeline, "#version 450\nlayout(location=0) out vec2 texCoord;\nvoid main() {\n\ttexCoord = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);\n\tgl_Position = vec4(texCoord * 2.0 - 1.0, 0.0, 1.0);\n}\n", fragment);
       if (RenderSystem.getCompiledPipelineNullable(pipeline) == null) {
          throw new IOException("Shader compilation failed in pass " + label + "; see log for source diagnostics");
       } else {

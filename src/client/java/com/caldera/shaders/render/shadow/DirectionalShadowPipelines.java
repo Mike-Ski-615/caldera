@@ -18,6 +18,14 @@ public final class DirectionalShadowPipelines {
    public static RenderPipeline ENTITY_DEPTH_SOLID;
    public static RenderPipeline ENTITY_DEPTH_CUTOUT;
    public static RenderPipeline ENTITY_DEPTH_TRANSLUCENT;
+   /**
+    * 这三条管线的编译产物归谁。
+    * <p>
+    * 它们的源码走的是核心着色器那条路，没有原生源码可登记，所以用 {@code claim} 而不是 {@code put}：
+    * 但**编译产物同样需要有人注销**，而那个人就是这里。原先 {@code close()} 得自己把三个字段列一遍，
+    * 加一条新管线就要记得回来补一次。
+    */
+   private static final GraphShaderSources.Owner OWNER = GraphShaderSources.owner("directional shadow pipelines");
 
    private DirectionalShadowPipelines() {
    }
@@ -27,22 +35,22 @@ public final class DirectionalShadowPipelines {
          close();
          DepthStencilState depthWrite = new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, true, 0.0F, 0.0F);
          ColorTargetState shadowColor = new ColorTargetState(Optional.empty(), GpuFormat.R8_UNORM, 1);
-         ENTITY_DEPTH_SOLID = entity("pipeline/shadow/entity_depth_solid", "entity_shadow_depth").withColorTargetState(shadowColor).withDepthStencilState(depthWrite).withCull(false).withBindGroupLayout(casterLayout()).build();
-         ENTITY_DEPTH_CUTOUT = entity("pipeline/shadow/entity_depth_cutout", "entity_shadow_depth").withColorTargetState(shadowColor).withDepthStencilState(depthWrite).withShaderDefine("ALPHA_CUTOUT", 0.1F).withCull(false).withBindGroupLayout(casterLayout()).build();
-         ENTITY_DEPTH_TRANSLUCENT = entity("pipeline/shadow/entity_depth_translucent", "entity_shadow_depth").withColorTargetState(shadowColor).withDepthStencilState(depthWrite).withShaderDefine("ALPHA_CUTOUT", 0.1F).withCull(false).withBindGroupLayout(casterLayout()).build();
+         ENTITY_DEPTH_SOLID = claim(entity("pipeline/shadow/entity_depth_solid", "entity_shadow_depth").withColorTargetState(shadowColor).withDepthStencilState(depthWrite).withCull(false).withBindGroupLayout(casterLayout()).build());
+         ENTITY_DEPTH_CUTOUT = claim(entity("pipeline/shadow/entity_depth_cutout", "entity_shadow_depth").withColorTargetState(shadowColor).withDepthStencilState(depthWrite).withShaderDefine("ALPHA_CUTOUT", 0.1F).withCull(false).withBindGroupLayout(casterLayout()).build());
+         ENTITY_DEPTH_TRANSLUCENT = claim(entity("pipeline/shadow/entity_depth_translucent", "entity_shadow_depth").withColorTargetState(shadowColor).withDepthStencilState(depthWrite).withShaderDefine("ALPHA_CUTOUT", 0.1F).withCull(false).withBindGroupLayout(casterLayout()).build());
       }
    }
 
    public static void close() {
-      for(RenderPipeline pipeline : new RenderPipeline[]{ENTITY_DEPTH_SOLID, ENTITY_DEPTH_CUTOUT, ENTITY_DEPTH_TRANSLUCENT}) {
-         if (pipeline != null) {
-            GraphShaderSources.remove(pipeline);
-         }
-      }
-
+      GraphShaderSources.releaseAll(OWNER);
       ENTITY_DEPTH_SOLID = null;
       ENTITY_DEPTH_CUTOUT = null;
       ENTITY_DEPTH_TRANSLUCENT = null;
+   }
+
+   private static RenderPipeline claim(RenderPipeline pipeline) {
+      GraphShaderSources.claim(OWNER, pipeline);
+      return pipeline;
    }
 
    public static RenderPipeline entityDepthPipeline(RenderPipeline pipeline) {

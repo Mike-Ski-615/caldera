@@ -20,18 +20,25 @@ import net.minecraft.resources.Identifier;
 
 public final class SodiumTerrainShadowPipelines {
    private static final Map<VertexFormat, Map<Integer, RenderPipeline>> CASTERS = new IdentityHashMap();
+   /** 这张缓存里所有管线的编译产物归谁；源码来自核心着色器，所以用 claim 而不是 put。 */
+   private static final GraphShaderSources.Owner OWNER = GraphShaderSources.owner("sodium terrain shadow pipelines");
 
    private SodiumTerrainShadowPipelines() {
    }
 
    public static RenderPipeline caster(TerrainRenderPass pass, VertexFormat vertexFormat) {
       int mode = pass.isTranslucent() ? 2 : (pass.supportsFragmentDiscard() ? 1 : 0);
-      return (RenderPipeline)((Map)CASTERS.computeIfAbsent(vertexFormat, (ignored) -> new HashMap())).computeIfAbsent(mode, (ignored) -> build(pass, vertexFormat));
+      return (RenderPipeline)((Map)CASTERS.computeIfAbsent(vertexFormat, (ignored) -> new HashMap())).computeIfAbsent(mode, (ignored) -> claim(build(pass, vertexFormat)));
    }
 
    public static void close() {
-      CASTERS.values().forEach((pipelines) -> pipelines.values().forEach(GraphShaderSources::remove));
+      GraphShaderSources.releaseAll(OWNER);
       CASTERS.clear();
+   }
+
+   private static RenderPipeline claim(RenderPipeline pipeline) {
+      GraphShaderSources.claim(OWNER, pipeline);
+      return pipeline;
    }
 
    private static RenderPipeline build(TerrainRenderPass pass, VertexFormat vertexFormat) {

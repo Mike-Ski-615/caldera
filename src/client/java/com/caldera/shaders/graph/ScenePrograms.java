@@ -27,6 +27,13 @@ final class ScenePrograms implements AutoCloseable {
    private final Map<RenderPipeline, RenderPipeline> targetCache = new IdentityHashMap<>();
    private final Map<RenderPipeline, RenderPipeline> fallbackCache = new IdentityHashMap<>();
    private final PackGraph graph;
+   /**
+    * 这个包注册进 {@link GraphShaderSources} 的那些替换管线归谁。
+    * <p>
+    * 单独的那几处 {@code remove}（替换失败、恢复失败）保留着：它们是**运行中**丢掉一条，不是收摊。
+    * 收摊那一次由这个 owner 一次清空，不必再逐个列举三张缓存里的替换项。
+    */
+   private final GraphShaderSources.Owner shaderSources = GraphShaderSources.owner("scene programs");
    private static long sequence;
 
    ScenePrograms(PackGraph graph, PackFiles files) throws IOException {
@@ -80,7 +87,7 @@ final class ScenePrograms implements AutoCloseable {
             } else {
                Identifier id = replacementLocation(base.getLocation(), sequence++);
                RenderPipeline replacement = new ScenePipeline(base, id, selected != null, this.targets(base, selected, sceneTargets), selected == null ? Map.of() : selected.rule.textures(), this.graph.shadowQuality() > 0, (Double)this.graph.options().getOrDefault("HELD_LIGHTING", (double)0.0F) > (double)0.0F);
-               GraphShaderSources.put(replacement, selected == null ? null : selected.vertex, selected == null ? null : selected.fragment);
+               GraphShaderSources.put(this.shaderSources, replacement, selected == null ? null : selected.vertex, selected == null ? null : selected.fragment);
 
                try {
                   if (RenderSystem.getCompiledPipelineNullable(replacement) == null) {
@@ -119,7 +126,7 @@ final class ScenePrograms implements AutoCloseable {
       return !sceneTargets ? base : this.fallbackCache.computeIfAbsent(base, (original) -> {
          Identifier id = replacementLocation(original.getLocation(), sequence++);
          RenderPipeline pipeline = new ScenePipeline(original, id, false, this.targets(original, null, true), Map.of(), false, false);
-         GraphShaderSources.put(pipeline, null, null);
+         GraphShaderSources.put(this.shaderSources, pipeline, null, null);
          if (RenderSystem.getCompiledPipelineNullable(pipeline) == null) {
             GraphShaderSources.remove(pipeline);
             throw new IllegalStateException("Cannot restore scene pipeline " + base.getLocation());
@@ -157,17 +164,17 @@ final class ScenePrograms implements AutoCloseable {
       return var10000;
    }
 
+   /**
+    * 收摊：清掉三张缓存，并把注册过的替换管线一次注销。
+    * <p>
+    * 原先这里是自己遍历三张缓存、逐条判 {@code base != replacement} 再 remove。那条规则与注册动作
+    * 是两份需要人工同步的东西；现在注册过什么由 owner 记着，这里不必再知道。
+    */
    public void close() {
-      for(Map<RenderPipeline, RenderPipeline> entries : List.of(this.cache, this.targetCache, this.fallbackCache)) {
-         entries.forEach((base, replacement) -> {
-            if (base != replacement) {
-               GraphShaderSources.remove(replacement);
-            }
-
-         });
-         entries.clear();
-      }
-
+      this.cache.clear();
+      this.targetCache.clear();
+      this.fallbackCache.clear();
+      GraphShaderSources.releaseAll(this.shaderSources);
    }
 
    private record Sources(PackGraph.SceneProgram rule, String vertex, String fragment) {

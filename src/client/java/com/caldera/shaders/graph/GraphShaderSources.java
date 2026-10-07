@@ -10,11 +10,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.WeakHashMap;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.NonNull;
@@ -23,13 +25,77 @@ public final class GraphShaderSources {
    private static final Map<RenderPipeline, Source> SOURCES = new IdentityHashMap<>();
    private static final Map<RenderPipeline, CompiledRenderPipeline> COMPILED = new IdentityHashMap<>();
    private static final Map<CompiledRenderPipeline, RenderPipeline> ORIGINAL = new WeakHashMap<>();
-   private static final Map<RenderPipeline, Runnable> RETIRE = new IdentityHashMap<>();
+   /**
+    * 每个 owner 名下的管线。
+    * <p>
+    * 这张表是"注销不再靠记性"的落点：管着若干条管线的人拿一个 {@link Owner}，把这些管线挂上去，
+    * 收摊时说一句 {@link #releaseAll(Owner)}，不必自己逐个列举——原先那 4 个 owner 各自维护一份
+    * 要注销的清单，漏一个就是静默残留（{@code COMPILED} 里的编译产物与 {@code ORIGINAL} 里的反查
+    * 会跟着一起留着）。
+    */
+   private static final Map<Owner, Set<RenderPipeline>> CLAIMED = new IdentityHashMap<>();
 
    private GraphShaderSources() {
    }
 
-   public static void put(RenderPipeline pipeline, String vertex, String fragment) {
+   /**
+    * 一个注册者。同一个 owner 可以跨多次注册使用；{@link #releaseAll(Owner)} 一次清空它名下的全部。
+    * <p>
+    * 它是个身份对象：不做 {@code equals}，两个同名的 owner 是不同的 owner。
+    */
+   public static final class Owner {
+      private final String name;
+
+      private Owner(String name) {
+         this.name = name;
+      }
+
+      @Override
+      public String toString() {
+         return "shader sources of " + this.name;
+      }
+   }
+
+   /**
+    * 造一个 owner；{@code name} 只用于诊断。
+    */
+   public static Owner owner(String name) {
+      return new Owner(name);
+   }
+
+   /**
+    * 把一条管线挂到 owner 名下，并登记它的原生源码。
+    * <p>
+    * 与 {@link #claim(Owner, RenderPipeline)} 分开，是因为有些管线（阴影与 Sodium 地形那两张缓存）
+    * 的源码走的是核心着色器那条路，它们没有原生源码可登记，但**编译产物同样需要有人负责注销**。
+    */
+   public static void put(Owner owner, RenderPipeline pipeline, String vertex, String fragment) {
+      claim(owner, pipeline);
       SOURCES.put(pipeline, new Source(vertex, fragment));
+   }
+
+   /**
+    * 只把管线挂到 owner 名下，不登记源码。
+    * <p>
+    * 用在"源码来自别处、但编译产物归我"的那些管线上。
+    */
+   public static void claim(Owner owner, RenderPipeline pipeline) {
+      CLAIMED.computeIfAbsent(owner, (ignored) -> Collections.newSetFromMap(new IdentityHashMap<>())).add(pipeline);
+   }
+
+   /**
+    * 注销这个 owner 名下的全部管线。
+    * <p>
+    * 逐条走 {@link #remove(RenderPipeline)}，所以与单独注销是同一条路径、同样幂等。已经单独注销过的
+    * 那些仍然留在名单上，再走一遍是空操作——名单本身在这一次调用里就丢掉了。
+    */
+   public static void releaseAll(Owner owner) {
+      Set<RenderPipeline> claimed = CLAIMED.remove(owner);
+
+      if (claimed != null) {
+         claimed.forEach(GraphShaderSources::remove);
+      }
+
    }
 
    public static String get(RenderPipeline pipeline, ShaderType type) {
@@ -94,11 +160,6 @@ public final class GraphShaderSources {
       if (compiled != null) {
          ORIGINAL.remove(compiled);
          compiled.close();
-      }
-
-      Runnable retire = RETIRE.remove(pipeline);
-      if (retire != null) {
-         retire.run();
       }
 
    }
