@@ -270,8 +270,8 @@ public final class ShadersScreen extends Screen {
 	}
 
 	private String activePackId() {
-		String selectedPackId = ShaderRuntime.config().selectedPackId();
-		return ShaderPackScanner.isKnownPackId(selectedPackId, this.packs()) ? selectedPackId : ShaderConfig.BUILTIN_PACK_ID;
+		// 归一化只有一个来源：扫描结果自己知道有哪些包。这里原先又手写了一遍同一个三元判断。
+		return this.scan.resolveSelection(ShaderRuntime.config().selectedPackId());
 	}
 
 	/** 把草稿收敛回已生效的那个包。「开启/关闭」与每次操作完成后都会走这里。 */

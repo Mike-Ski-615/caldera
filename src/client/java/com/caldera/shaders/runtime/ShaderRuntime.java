@@ -152,8 +152,10 @@ public final class ShaderRuntime {
       this.config = this.host.loadConfig();
       this.host.ensurePackDirectory();
       this.scan = this.host.scanPacks();
-      if (!ShaderPackScanner.isKnownPackId(this.config.selectedPackId(), this.scan.supportedPacks())) {
-         this.config = this.config.withSelection(this.config.enabled(), "__builtin__");
+      // "选中的包必须还在，否则回退内置"只剩这一个判断了——归一化本身在 ScanResult 上。
+      String resolved = this.scan.resolveSelection(this.config.selectedPackId());
+      if (!resolved.equals(this.config.selectedPackId())) {
+         this.config = this.config.withSelection(this.config.enabled(), resolved);
          this.host.saveConfig(this.config);
       }
    }
@@ -248,29 +250,22 @@ public final class ShaderRuntime {
 
    private CompletableFuture<Void> realign() {
       this.scan = this.host.scanPacks();
-      if (ShaderPackScanner.isKnownPackId(this.config.selectedPackId(), this.scan.supportedPacks())) {
+      String resolved = this.scan.resolveSelection(this.config.selectedPackId());
+      if (resolved.equals(this.config.selectedPackId())) {
          return CompletableFuture.completedFuture(null);
       }
 
       LOGGER.info("Caldera shader pack {} is gone; falling back to the built-in pack", this.config.selectedPackId());
-      return this.apply(this.config.withSelection(this.config.enabled(), "__builtin__"), true);
+      return this.apply(this.config.withSelection(this.config.enabled(), resolved), true);
    }
 
+   /**
+    * 把一个包 id 收敛到"当前扫描结果里真实存在的那个，否则内置包"。
+    * <p>
+    * 判断本身已经收在 {@link ShaderPackScanner.ScanResult#resolveSelection}；这里保留一个私有入口
+    * 只是因为它是本类的调用点，读起来比在 {@code applySelection} 里现取扫描结果清楚。
+    */
    private String normalizePackId(String selectedPackId) {
-      if (selectedPackId != null && !selectedPackId.isBlank() && !"__builtin__".equals(selectedPackId)) {
-         return this.findPack(selectedPackId) == null ? "__builtin__" : selectedPackId;
-      } else {
-         return "__builtin__";
-      }
-   }
-
-   private ShaderPackScanner.AvailableShaderPack findPack(String selectedPackId) {
-      for(ShaderPackScanner.AvailableShaderPack pack : this.scan.supportedPacks()) {
-         if (pack.id().equals(selectedPackId)) {
-            return pack;
-         }
-      }
-
-      return null;
+      return this.scan.resolveSelection(selectedPackId);
    }
 }

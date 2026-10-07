@@ -1,5 +1,6 @@
 package com.caldera.shaders.pack;
 
+import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.graph.NativePackRuntime;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -190,6 +191,39 @@ class ShaderPackScannerTest {
 				new ShaderPackScanner.AvailableShaderPack("Nice", "Nice", Path.of("/nowhere"), false);
 
 		assertFalse(ShaderPackScanner.isKnownPackId("Vanished", List.of(pack)));
+	}
+
+	// ------------------------------------------------------------ resolveSelection
+
+	/**
+	 * "选中的包必须还在，否则回退内置"这条不变量原先在四个地方各写了一遍
+	 * （{@code ShaderRuntime} 的 loadState / realign / normalizePackId，以及 {@code ShadersScreen}）。
+	 * 现在只有这一个来源，所以它值得有自己的测试。
+	 */
+	@Test
+	void resolveSelectionKeepsAPackThatIsStillScanned() {
+		ShaderPackScanner.AvailableShaderPack pack =
+				new ShaderPackScanner.AvailableShaderPack("Nice", "Nice", Path.of("/nowhere"), false);
+
+		assertEquals("Nice", new ShaderPackScanner.ScanResult(List.of(pack), List.of()).resolveSelection("Nice"));
+	}
+
+	@Test
+	void resolveSelectionFallsBackToTheBuiltinForAGhost() {
+		ShaderPackScanner.AvailableShaderPack pack =
+				new ShaderPackScanner.AvailableShaderPack("Nice", "Nice", Path.of("/nowhere"), false);
+		ShaderPackScanner.ScanResult scan = new ShaderPackScanner.ScanResult(List.of(pack), List.of());
+
+		assertEquals(ShaderConfig.BUILTIN_PACK_ID, scan.resolveSelection("Vanished"));
+		assertEquals(ShaderConfig.BUILTIN_PACK_ID, scan.resolveSelection(null));
+		assertEquals(ShaderConfig.BUILTIN_PACK_ID, scan.resolveSelection("   "));
+	}
+
+	@Test
+	void resolveSelectionKeepsTheBuiltinEvenWithNothingScanned() {
+		ShaderPackScanner.ScanResult empty = new ShaderPackScanner.ScanResult(List.of(), List.of());
+
+		assertEquals(ShaderConfig.BUILTIN_PACK_ID, empty.resolveSelection(ShaderConfig.BUILTIN_PACK_ID));
 	}
 
 	// ------------------------------------------------------------ isNative

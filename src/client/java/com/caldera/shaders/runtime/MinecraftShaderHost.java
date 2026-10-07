@@ -1,5 +1,6 @@
 package com.caldera.shaders.runtime;
 
+import com.caldera.shaders.config.CalderaConfigFiles;
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.graph.GraphRenderer;
 import com.caldera.shaders.graph.NativePackRuntime;
@@ -17,7 +18,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.level.Level;
 
+import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -29,14 +32,32 @@ import java.util.concurrent.Executor;
  */
 public final class MinecraftShaderHost implements ShaderHost {
 
+	/**
+	 * 两个文件的实际读写都在 {@link CalderaConfigFiles} 里，这里只把两个目录交给它。
+	 * <p>
+	 * 路径是这个适配器该知道的事——原件分别写的是 {@code getGameDir().resolve("config")} 与
+	 * {@code getConfigDir()}，所以两个 API 都照原样取。
+	 */
+	private final CalderaConfigFiles configFiles = new CalderaConfigFiles(FabricLoader.getInstance().getGameDir(), FabricLoader.getInstance().getConfigDir());
+
 	@Override
 	public ShaderConfig loadConfig() {
-		return ShaderConfig.load();
+		return this.configFiles.loadSettings();
 	}
 
 	@Override
 	public void saveConfig(ShaderConfig config) {
-		config.save();
+		this.configFiles.saveSettings(config);
+	}
+
+	@Override
+	public Map<String, Double> loadPackOptions(String packId) throws IOException {
+		return this.configFiles.loadPackOptions(packId);
+	}
+
+	@Override
+	public void savePackOptions(String packId, Map<String, Double> values) throws IOException {
+		this.configFiles.savePackOptions(packId, values);
 	}
 
 	@Override

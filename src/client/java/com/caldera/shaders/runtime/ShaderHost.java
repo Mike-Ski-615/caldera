@@ -7,6 +7,7 @@ import com.mojang.renderpearl.api.GpuFormat;
 import net.minecraft.client.multiplayer.ClientLevel;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -28,6 +29,23 @@ public interface ShaderHost {
 
 	/** 持久化光影设置。 */
 	void saveConfig(ShaderConfig config);
+
+	/**
+	 * 读一个包存下来的选项；没有文件时返回空表。
+	 * <p>
+	 * 原先这条路径**不在端口上**：{@code NativePackRuntime} 自己拼 {@code config/caldera-packs/}
+	 * 下的 SHA-256 文件名、自己解析 JSON。于是"包选项怎么落盘"这一整条链在测试里根本走不到，
+	 * 而它和 settings 那条链干的是同一件事。
+	 * <p>
+	 * 返回**已经解析好的值**：文件格式是适配器的事，"哪些值合法、旧格式怎么迁移"是模块的事
+	 * （那需要包自己的 {@code optionDefinitions} 才判断得了）。
+	 *
+	 * @throws java.io.IOException 文件在、但内容不是一份能认的选项表
+	 */
+	Map<String, Double> loadPackOptions(String packId) throws java.io.IOException;
+
+	/** 写一个包的选项。 */
+	void savePackOptions(String packId, Map<String, Double> values) throws java.io.IOException;
 
 	/** 确保光影包目录存在。 */
 	void ensurePackDirectory();

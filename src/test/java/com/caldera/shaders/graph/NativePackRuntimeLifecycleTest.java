@@ -2,6 +2,7 @@ package com.caldera.shaders.graph;
 
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.runtime.FakeShaderHost;
+import java.util.Map;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import org.joml.Matrix4f;
 import org.junit.jupiter.api.AfterEach;
@@ -200,8 +201,7 @@ class NativePackRuntimeLifecycleTest {
    }
 
    @Test
-   void aPendingGeometryRebuildKeepsTheSceneClosed() {
-      NativePackRuntime.install(this.host);
+   void aPendingGeometryRebuildKeepsTheSceneClosed() {      NativePackRuntime.install(this.host);
       NativePackRuntime.scope(true);
       NativePackRuntime.requestGeometryRebuild();
 
@@ -302,5 +302,43 @@ class NativePackRuntimeLifecycleTest {
       this.host.vulkan = true;
 
       assertNull(NativePackRuntime.prepare(new ShaderConfig(false, "__builtin__")));
+   }
+
+   // ---------------------------------------------------------------- 包选项的持久化走端口
+
+   /**
+    * 存下来的选项现在通过 {@link FakeShaderHost} 的内存替身进来，于是"读出来的旧值被迁移成什么"
+    * 这条路径第一次测得动。夹具用的是真实的内置包，它的 COLOR_GRADE 定义正好是那四档。
+    */
+   @Test
+   void aSavedColorGradeOf075IsMigratedToVibrantWhenItIsRead() throws Exception {
+      NativePackRuntime.install(this.host);
+      this.host.storedPackOptions.put("__builtin__", Map.of("COLOR_GRADE", 0.75));
+
+      PackGraph graph = NativePackRuntime.settings("__builtin__");
+
+      // 迁移必须发生在 withOptions 之前：0.75 不在定义里，直接并进去会抛 IllegalArgumentException。
+      assertEquals(1.0, graph.options().get("COLOR_GRADE"));
+      assertTrue(this.host.events.contains("loadPackOptions:__builtin__"), "必须走端口读，而不是自己碰文件");
+   }
+
+   /** 定义之外的值得丢掉、回落到包自己声明的 default，而不是让整份选项读失败。 */
+   @Test
+   void aSavedValueOutsideTheDefinitionsIsDroppedInFavourOfTheDefault() throws Exception {
+      NativePackRuntime.install(this.host);
+      this.host.storedPackOptions.put("__builtin__", Map.of("COLOR_GRADE", 0.9, "CLOUD_QUALITY", 2.0));
+
+      PackGraph graph = NativePackRuntime.settings("__builtin__");
+
+      assertEquals(0.5, graph.options().get("COLOR_GRADE"), "0.9 不在四档里，回落到 default");
+      assertEquals(2.0, graph.options().get("CLOUD_QUALITY"), "同一次读取里合法的值照常生效");
+   }
+
+   @Test
+   void anUnreadablePackOptionsFileIsReportedAsAnIoFailure() {
+      NativePackRuntime.install(this.host);
+      this.host.packOptionsFailure = new IllegalStateException("bad json");
+
+      assertThrows(java.io.IOException.class, () -> NativePackRuntime.settings("__builtin__"));
    }
 }

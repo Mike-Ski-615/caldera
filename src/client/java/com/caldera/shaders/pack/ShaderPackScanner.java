@@ -1,5 +1,6 @@
 package com.caldera.shaders.pack;
 
+import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.graph.NativePackRuntime;
 import com.caldera.shaders.graph.PackFiles;
 import com.caldera.shaders.graph.PackGraph;
@@ -133,6 +134,21 @@ public final class ShaderPackScanner {
    }
 
    public static record ScanResult(List<AvailableShaderPack> supportedPacks, List<UnsupportedShaderPack> unsupportedPacks) {
+      /**
+       * 把一个选中的包 id 归一化成"要么它还在，要么内置包"。
+       * <p>
+       * 这条不变量原先在四个地方各写了一遍：{@code ShaderRuntime} 的 loadState、realign、
+       * normalizePackId（外加只服务它的一个私有 {@code findPack}），以及
+       * {@code ShadersScreen.activePackId}。前三条里有一条是手抄 {@link #isKnownPackId}。
+       * 归一化放在扫描结果上，是因为**它**才知道有哪些包；调用方手里都已经有这个对象，
+       * 于是不必记得把 {@code supportedPacks()} 传进来，也就误用不了。
+       * <p>
+       * 它与"包 id 不能为空"是两回事：后者是 {@code ShaderConfig} 自己管的（空 → 内置包），
+       * 不需要知道有哪些包。
+       */
+      public String resolveSelection(String selectedPackId) {
+         return isKnownPackId(selectedPackId, this.supportedPacks) ? selectedPackId : ShaderConfig.BUILTIN_PACK_ID;
+      }
    }
 
    public static record AvailableShaderPack(String id, String displayName, Path path, boolean directory) {

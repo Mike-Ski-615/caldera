@@ -74,7 +74,11 @@ final class PackSettingsModel {
    String value(String key, boolean advanced) {
       double v = (Double)this.values.get(key);
       if (key.equals("COLOR_GRADE") && ((PackGraph.Option)this.graph.optionDefinitions().get(key)).values().equals(List.of((double)0.0F, (double)0.25F, (double)0.5F, (double)1.0F))) {
-         return v == (double)0.0F ? "Off" : (v == (double)0.25F ? "Natural" : (v == (double)0.5F ? "Realistic" : "Vibrant"));
+         // 明确的四档映射，不是"最后那个 else 兜住 1.0"。原先写成嵌套三元、末尾落到 "Vibrant"，
+         // 看起来像在兜 0.75 那个旧档位——但 PackGraph.withOptions 对不在定义里的值直接抛，
+         // 旧值早在读文件时就迁移掉了，所以那个兜底其实永远到不了。
+         // v 一定在这个定义里：PackGraph.parse 要求 default 属于 values，withOptions 也做同样的检查。
+         return (String)List.of("Off", "Natural", "Realistic", "Vibrant").get(((PackGraph.Option)this.graph.optionDefinitions().get(key)).values().indexOf(v));
       } else if (this.toggle(key, advanced)) {
          return v == (double)0.0F ? "Off" : "On";
       } else if (key.endsWith("_QUALITY") && v >= (double)0.0F && v <= (double)4.0F && v == Math.rint(v)) {

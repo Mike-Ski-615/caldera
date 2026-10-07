@@ -41,6 +41,16 @@ public final class FakeShaderHost implements ShaderHost {
 
 	/** loadConfig() 返回的内容。 */
 	public ShaderConfig stored = new ShaderConfig();
+	/**
+	 * 每个包存下来的选项，按包 id 分。
+	 * <p>
+	 * 这就是 pack options 那条链的内存替身：生产侧是
+	 * {@code CalderaConfigFiles} 写 {@code config/caldera-packs/<sha256>.json}，
+	 * 这里是一个 map。有了它，"读出来的旧值会被迁移成什么"才测得动。
+	 */
+	public final Map<String, Map<String, Double>> storedPackOptions = new HashMap<>();
+	/** 非 null 时 loadPackOptions 抛出它，用来测"文件坏了"那条路径。 */
+	public Exception packOptionsFailure;
 	/** scanPacks() 返回的受支持条目。 */
 	public List<ShaderPackScanner.AvailableShaderPack> scanned = List.of();
 	/** scanPacks() 返回的无法识别条目。 */
@@ -76,6 +86,22 @@ public final class FakeShaderHost implements ShaderHost {
 		this.events.add("saveConfig");
 		this.savedConfigs.add(config);
 		this.stored = config;
+	}
+
+	@Override
+	public Map<String, Double> loadPackOptions(String packId) throws java.io.IOException {
+		this.events.add("loadPackOptions:" + packId);
+		if (this.packOptionsFailure != null) {
+			throw new java.io.IOException("Invalid saved pack options: " + packId, this.packOptionsFailure);
+		}
+
+		return this.storedPackOptions.getOrDefault(packId, Map.of());
+	}
+
+	@Override
+	public void savePackOptions(String packId, Map<String, Double> values) throws java.io.IOException {
+		this.events.add("savePackOptions:" + packId);
+		this.storedPackOptions.put(packId, Map.copyOf(values));
 	}
 
 	@Override

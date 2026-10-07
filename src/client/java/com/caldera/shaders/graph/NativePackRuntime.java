@@ -1,8 +1,6 @@
 package com.caldera.shaders.graph;
 
-import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.logging.LogUtils;
@@ -17,14 +15,8 @@ import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
 import com.caldera.shaders.runtime.ShaderHost;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,7 +24,6 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipFile;
-import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.state.level.LevelRenderState;
@@ -476,18 +467,10 @@ public final class NativePackRuntime {
       GraphRenderer candidate = backendReady(config) && id.equals(config.selectedPackId())
             ? new GraphRenderer(graph, files, this.host.mainRenderTarget())
             : null;
-      Path destination = optionFile(id);
-      Path temporary = destination.resolveSibling(destination.getFileName() + ".tmp");
-
+      // 落盘走端口：路径、JSON、原子写都在 CalderaConfigFiles 里，这里只交值。
+      // 顺序与原件一致：先写文件，写失败就丢掉候选渲染器并抛出；写成功才激活。
       try {
-         Files.createDirectories(destination.getParent());
-         Files.writeString(temporary, (new GsonBuilder()).setPrettyPrinting().create().toJson(graph.options()));
-
-         try {
-            Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-         } catch (AtomicMoveNotSupportedException var9) {
-            Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING);
-         }
+         this.host.savePackOptions(id, graph.options());
       } catch (IOException failure) {
          if (candidate != null) {
             candidate.close();
@@ -789,38 +772,36 @@ public final class NativePackRuntime {
       return "__builtin__".equals(id) ? PackFiles.bundled() : PackFiles.read(ShaderPackScanner.shaderPackDirectory().resolve(id));
    }
 
-   private static Path optionFile(String id) {
-      try {
-         String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(id.getBytes(StandardCharsets.UTF_8)));
-         return FabricLoader.getInstance().getConfigDir().resolve("caldera-packs").resolve(hash + ".json");
-      } catch (NoSuchAlgorithmException impossible) {
-         throw new AssertionError(impossible);
-      }
-   }
-
-   private static PackGraph loadOptions(PackGraph graph, String id) throws IOException {
-      Path path = optionFile(id);
-      if (!Files.isRegularFile(path)) {
+   /**
+    * 把存下来的选项并进包自己的图里。
+    * <p>
+    * 字节部分（路径、JSON、原子写）现在在 {@code CalderaConfigFiles} 里，走
+    * {@link ShaderHost#loadPackOptions}；这里只剩**语义**：哪些值在这个包的选项定义里是合法的，
+    * 以及旧格式的值怎么迁移。这两件事需要 {@code optionDefinitions}，所以留在这一层。
+    */
+   private PackGraph loadOptions(PackGraph graph, String id) throws IOException {
+      Map<String, Double> stored = this.host.loadPackOptions(id);
+      if (stored.isEmpty()) {
          return graph;
       } else {
-         try {
-            JsonObject json = JsonParser.parseString(Files.readString(path)).getAsJsonObject();
-            Map<String, Double> values = new TreeMap<>();
-            json.entrySet().forEach((e) -> {
-               PackGraph.Option definition = graph.optionDefinitions().get(e.getKey());
-               double value = e.getValue().getAsDouble();
-               if (e.getKey().equals("COLOR_GRADE") && value == (double)0.75F && definition != null && definition.values().equals(List.of((double)0.0F, (double)0.25F, (double)0.5F, (double)1.0F))) {
-                  value = 1.0F;
-               }
+         Map<String, Double> values = new TreeMap<>();
 
-               if (definition != null && definition.values().contains(value)) {
-                  values.put(e.getKey(), value);
-               }
-            });
-            return graph.withOptions(values);
-         } catch (RuntimeException malformed) {
-            throw new IOException("Invalid saved pack options: " + path, malformed);
+         for(Map.Entry<String, Double> entry : stored.entrySet()) {
+            String key = entry.getKey();
+            double value = entry.getValue();
+            PackGraph.Option definition = graph.optionDefinitions().get(key);
+            // 0.75 是 COLOR_GRADE 早期四档之前的档位，当时的第三档就是现在的 Vibrant。
+            // 迁移必须在这里做：PackGraph.withOptions 对不在定义里的值直接抛，0.75 进不去。
+            if (key.equals("COLOR_GRADE") && value == (double)0.75F && definition != null && definition.values().equals(List.of((double)0.0F, (double)0.25F, (double)0.5F, (double)1.0F))) {
+               value = 1.0F;
+            }
+
+            if (definition != null && definition.values().contains(value)) {
+               values.put(key, value);
+            }
          }
+
+         return graph.withOptions(values);
       }
    }
 }
