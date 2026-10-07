@@ -1,16 +1,11 @@
 package com.caldera.shaders.graph;
 
-import com.google.gson.JsonObject;
-import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.logging.LogUtils;
 import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.pack.ShaderPackScanner;
-import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.render.shadow.HeldLightShadowRenderer;
 import com.caldera.shaders.render.shadow.ShadowPassScope;
 import com.caldera.shaders.runtime.ShaderHost;
@@ -24,31 +19,31 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipFile;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.state.level.LevelRenderState;
-import net.minecraft.world.level.Level;
-import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
 import org.joml.Vector4fc;
 
 /**
- * 原生光影的**帧生命周期**与**渲染器生命周期**。
+ * 原生光影的**渲染器生命周期**：准备／激活／拆除，以及包选项的读写语义。
  * <p>
  * 迁移前这是一整片静态字段（9 个可变 static），同时管着四件事：pack 选项持久化、渲染器的
- * 准备／激活／拆除、scene frame 协议，以及给 mixin 读的 shadow／present 查询。后果与
- * ADR-0003 里记的那一份完全相同：整个 scene 时序无法被单元测试触碰，而 6 个 mixin 直接读它的
- * scene 状态——{@code sceneActive}／{@code sceneFailure}／{@code geometryRebuildPending} 的组合错了
- * 不会报错，只会安静地画错一帧。
+ * 准备／激活／拆除、scene frame 协议，以及给 mixin 读的 shadow／present 查询。第一轮把状态搬进了
+ * 实例（本类的私有字段），第二轮把 **scene frame** 整块搬了出去——阶段、门闸与它们护着的动作现在都在
+ * {@link SceneFrame} 里。所以剩下的是三件：渲染器生命周期、包选项语义、以及给 mixin 的静态门面。
  * <p>
- * 现在状态与流程都在**实例**里。唯一的静态入口是 {@link #install()}；其余静态方法都只是门面，
- * 供 mixin 与 {@link com.caldera.shaders.runtime.MinecraftShaderHost} 调用，并且在实例尚未安装时
+ * 唯一的静态入口是 {@link #install()}；其余静态方法都只是门面，供 mixin 与
+ * {@link com.caldera.shaders.runtime.MinecraftShaderHost} 调用，并且在实例尚未安装时
  * 给出**安全答案**（不渲染、不拆除、空查询、{@code false}、{@code 0}），
- * 与迁移前那些静态字段的初值语义一致。
+ * 与迁移前那些静态字段的初值语义一致。门面里那些属于场景帧的方法只是一行转发，不再自己判断。
  * <p>
- * <b>门面里那 18 个方法名是 mixin 能摸到的全部接口，不得改名。</b>
+ * <b>门面里那 37 个方法名是 mixin 能摸到的全部接口，不得改名。</b>
  * mixin 由游戏实例化，只能访问静态成员；改名不会有任何编译错误，只会在运行时静默失效。
  * 私有字段与私有方法的名字不在此列，可以改。
+ * <p>
+ * {@link SceneFrame} 是由 {@link #install(ShaderHost)} 一起装上的：它需要同一份 host，以及
+ * "资源重载中／正在画阴影贴图／本帧生效的设置"这三个来源。三个都作为协作者注入，而不是在这个类里
+ * 静态伸手——见那个类的说明。
  */
 public final class NativePackRuntime {
    /**
@@ -68,45 +63,12 @@ public final class NativePackRuntime {
     */
    private final ShaderHost host;
 
-   /** 当前生效的渲染器，没有时为 {@code null}。 */
-   private GraphRenderer active;
-   /** {@link #active} 对应的包 id；没有渲染器时为 {@code null}。 */
-   private String activeId;
-   /** 渲染器上一次失败的描述，从未失败时为 {@code null}。 */
-   private String failure;
-   /**
-    * 这一帧是否处在世界渲染里，也就是 {@code renderLevel} 已经进去、还没出来。
-    * <p>
-    * 由 {@link #scope} 开关。它与 {@link #sceneBegun} 是**两件事**：前者是"我们在世界渲染里"，
-    * 后者是"相机已经就绪、可以画原生几何"。混成一个 boolean 会让下面那些
-    * "本帧到底能不能画"的判断读不出来。
-    */
-   private boolean frameScope;
-   /**
-    * 本帧的 scene 是否已经开过（也就是 {@code beginScene} 走过 ready 分支）。
-    * <p>
-    * 只用于顺序强制：同一个 frame scope 里开第二次就是 bug。它**不**决定能不能画——
-    * 能画是 {@link #sceneActive} 说的。
-    */
-   private boolean sceneBegun;
-   /**
-    * 这一帧是否真的可以画原生几何，等于"frame scope 开着，且最近一次 {@code beginScene} 没有说相机不可用"。
-    * <p>
-    * 名字原先叫 {@code sceneScope}，但它是个 boolean——那个名字会让读者以为它是个作用域对象。
-    */
-   private boolean sceneActive;
-   /** scene 期间累积的失败；由 {@code finishScene()} 消费一次。 */
-   private Exception sceneFailure;
-   /** 本帧的相机与视图矩阵；不在 scene 里时为 {@code null}。 */
-   private CameraRenderState camera;
-   private Matrix4fc view;
-   /** 世界投影矩阵，由 mixin 在投影建立时推入。 */
-   private Matrix4fc worldProjection;
-   /** 地形几何是否待重建。 */
-   private boolean geometryRebuildPending;
+   /** 本帧的场景帧：阶段、门闸、以及本帧在用的那个渲染器。 */
+   private final SceneFrame frame;
 
    private NativePackRuntime(ShaderHost host) {
       this.host = host;
+      this.frame = new SceneFrame(host, ShaderRuntime::config, ShaderRuntime::resourceReloading, ShadowPassScope::active);
    }
 
    /**
@@ -131,13 +93,13 @@ public final class NativePackRuntime {
       instance = null;
    }
 
-   // ---------------------------------------------------------------- 生命周期门面
+   // ---------------------------------------------------------------- 渲染器生命周期门面
 
    /** 关闭当前生效的渲染器。 */
    public static void close() {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.closeActive();
+         runtime.frame.detach(SceneFrame.Disposal.SYNCHRONOUS);
       }
    }
 
@@ -198,26 +160,14 @@ public final class NativePackRuntime {
    public static void requestGeometryRebuild() {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.geometryRebuildPending = true;
+         runtime.frame.requestGeometryRebuild();
       }
    }
 
    /** 渲染器上一次失败的描述，从未失败时为 {@code null}。 */
    public static String failure() {
       NativePackRuntime runtime = instance;
-      return runtime == null ? null : runtime.failure;
-   }
-
-   /**
-    * 该不该在这次设置下建渲染器：开关 + 后端。**不含**"这个包是不是原生包"。
-    * <p>
-    * 走 {@code host.vulkanActive()} 而不是 {@code BackendStatus} 那个静态：生产实现里两者是同一行，
-    * 但走端口之后这一问才在测试里摆得动——否则测一个"非 Vulkan 时不建渲染器"都要真的 GPU。
-    * <p>
-    * 原先这三处（{@code prepare}／{@code applyOptions}／{@code render}）各自内联了同一个两元判断。
-    */
-   private boolean backendReady(ShaderConfig config) {
-      return config.enabled() && this.host.vulkanActive();
+      return runtime == null ? null : runtime.frame.failure();
    }
 
    /** 这个包 id 指向的目录/压缩包确实是一个原生包。纯文件系统判断，与实例状态无关。 */
@@ -280,105 +230,102 @@ public final class NativePackRuntime {
    public static void captureHandProjection(Matrix4fc projection) {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.captureHandProjectionNow(projection);
+         runtime.frame.captureHandProjection(projection);
       }
    }
 
    public static void captureWorldProjection(Matrix4fc projection) {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.worldProjection = new Matrix4f(projection);
+         runtime.frame.captureWorldProjection(projection);
       }
    }
 
    public static void scope(boolean enabled) {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.setFrameScopeNow(enabled);
+         runtime.frame.scope(enabled);
       }
    }
 
    public static void beginScene(CameraRenderState currentCamera, Matrix4fc currentView, LevelRenderState state, float partialTick) {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.beginSceneNow(currentCamera, currentView, state, partialTick);
+         runtime.frame.beginScene(currentCamera, currentView, state, partialTick);
       }
    }
 
    public static void finishScene() {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.finishSceneNow();
+         runtime.frame.finishScene();
       }
    }
 
    public static RenderPassDescriptor sceneAttachments(RenderPassDescriptor descriptor) {
       NativePackRuntime runtime = instance;
-      return runtime == null ? descriptor : runtime.sceneAttachmentsNow(descriptor);
+      return runtime == null ? descriptor : runtime.frame.sceneAttachments(descriptor);
    }
 
    /**
     * 决定要不要接管一个刚建出来的 render pass，要的话包一层。
     * <p>
-    * 这一条从 {@code SceneRenderPass} 挪出来，是为了把那里最后一处伸手拿掉：主目标的颜色纹理
-    * 原先由它自己去读 {@code Minecraft.getInstance().gameRenderer.mainRenderTarget()}，而
-    * {@link ShaderHost#mainRenderTarget()} 就是同一句。归到这里之后，那个模块只剩策略，
-    * 游戏能力的取用全在本类**已经**持有的 host 上。
+    * 主目标的颜色纹理由 {@link SceneFrame} 从 host 惰性取，所以这里只剩转发。
     */
    public static RenderPass wrapScenePass(RenderPass pass, RenderPassDescriptor descriptor) {
       NativePackRuntime runtime = instance;
-      return runtime == null ? pass : runtime.wrapScenePassNow(pass, descriptor);
+      return runtime == null ? pass : runtime.frame.wrapScenePass(pass, descriptor);
    }
 
    public static RenderPipeline scenePipeline(RenderPipeline base, List<RenderPassDescriptor.Attachment<Optional<Vector4fc>>> attachments) {
       NativePackRuntime runtime = instance;
-      return runtime == null ? base : runtime.scenePipelineNow(base, attachments);
+      return runtime == null ? base : runtime.frame.scenePipeline(base, attachments);
    }
 
    public static void bindSceneUniforms(RenderPass pass, RenderPipeline pipeline) {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.bindSceneUniformsNow(pass, pipeline);
+         runtime.frame.bindSceneUniforms(pass, pipeline);
       }
    }
 
    public static GpuTextureView weatherView() {
       NativePackRuntime runtime = instance;
-      return runtime == null ? null : runtime.weatherViewNow();
+      return runtime == null ? null : runtime.frame.weatherView();
    }
 
    public static void captureTerrain() {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.captureTerrainNow();
+         runtime.frame.captureTerrain();
       }
    }
 
    public static void captureTranslucentDepth() {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.captureTranslucentDepthNow();
+         runtime.frame.captureTranslucentDepth();
       }
    }
 
    public static void captureWorldDepth() {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.captureWorldDepthNow();
+         runtime.frame.captureWorldDepth();
       }
    }
 
    public static void failScene(Exception problem) {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.sceneFailure = problem;
+         runtime.frame.fail(problem);
       }
    }
 
    public static void flushGeometryRebuild() {
       NativePackRuntime runtime = instance;
       if (runtime != null) {
-         runtime.flushGeometryRebuildNow();
+         runtime.frame.flushGeometryRebuild();
       }
    }
 
@@ -387,62 +334,62 @@ public final class NativePackRuntime {
    /** 是否真的在渲染原生几何；渲染器的查询都先过这一问。 */
    public static boolean shadowFrameReady() {
       NativePackRuntime runtime = instance;
-      return runtime != null && runtime.shadowFrameReadyNow();
+      return runtime != null && runtime.frame.shadowFrameReady();
    }
 
    public static HeldLightShadowRenderer heldShadows() {
       NativePackRuntime runtime = instance;
-      return runtime == null ? null : runtime.heldShadowsNow();
+      return runtime == null ? null : runtime.frame.heldShadows();
    }
 
    public static boolean usesNativeTransparency() {
       NativePackRuntime runtime = instance;
-      return runtime != null && runtime.usesNativeTransparencyNow();
+      return runtime != null && runtime.frame.usesNativeTransparency();
    }
 
    public static boolean render(ShaderConfig config, CameraRenderState camera, Matrix4fc view) {
       NativePackRuntime runtime = instance;
-      return runtime != null && runtime.renderNow(config, camera, view);
+      return runtime != null && runtime.frame.render(config, camera, view);
    }
 
    public static boolean replacesEnvironment(boolean clouds) {
       NativePackRuntime runtime = instance;
-      return runtime != null && runtime.replacesEnvironmentNow(clouds);
+      return runtime != null && runtime.frame.replacesEnvironment(clouds);
    }
 
    public static int shadowQuality() {
       NativePackRuntime runtime = instance;
-      return runtime == null ? 0 : runtime.shadowQualityNow();
+      return runtime == null ? 0 : runtime.frame.shadowQuality();
    }
 
    public static int shadowDistance() {
       NativePackRuntime runtime = instance;
-      return runtime == null ? 128 : runtime.shadowDistanceNow();
+      return runtime == null ? 128 : runtime.frame.shadowDistance();
    }
 
    public static boolean animatedShadowCasters() {
       NativePackRuntime runtime = instance;
-      return runtime != null && runtime.active != null && runtime.active.animatedShadowCasters();
+      return runtime != null && runtime.frame.animatedShadowCasters();
    }
 
    public static MaterialTable materials() {
       NativePackRuntime runtime = instance;
-      return runtime == null || runtime.active == null ? null : runtime.active.materials();
+      return runtime == null ? null : runtime.frame.materials();
    }
 
    public static long terrainCaptures() {
       NativePackRuntime runtime = instance;
-      return runtime == null || runtime.active == null ? 0L : runtime.active.terrainCaptures();
+      return runtime == null ? 0L : runtime.frame.terrainCaptures();
    }
 
    public static long renderedFrames() {
       NativePackRuntime runtime = instance;
-      return runtime == null || runtime.active == null ? 0L : runtime.active.renderedFrames();
+      return runtime == null ? 0L : runtime.frame.renderedFrames();
    }
 
    public static long sceneReplacementCount() {
       NativePackRuntime runtime = instance;
-      return runtime == null || runtime.active == null ? 0L : runtime.active.sceneReplacementCount();
+      return runtime == null ? 0L : runtime.frame.sceneReplacementCount();
    }
 
    // ---------------------------------------------------------------- 实例：渲染器生命周期
@@ -454,7 +401,7 @@ public final class NativePackRuntime {
     * 因为那是用户可见的错误，不是"什么都不做"。
     */
    private GraphRenderer prepareRenderer(ShaderConfig config) throws IOException {
-      if (!backendReady(config)) {
+      if (!this.frame.backendReady(config)) {
          return null;
       }
 
@@ -477,7 +424,7 @@ public final class NativePackRuntime {
       PackGraph graph = PackGraph.parse(files.text("caldera.json")).withOptions(values);
       ShaderConfig config = ShaderRuntime.config();
       // 原件用的是同一个「开关 + 后端」判断，但不含"这个包是不是原生包"——保持一致，不合并。
-      GraphRenderer candidate = backendReady(config) && id.equals(config.selectedPackId())
+      GraphRenderer candidate = this.frame.backendReady(config) && id.equals(config.selectedPackId())
             ? new GraphRenderer(graph, files, this.host.mainRenderTarget())
             : null;
       // 落盘走端口：路径、JSON、原子写都在 CalderaConfigFiles 里，这里只交值。
@@ -498,329 +445,21 @@ public final class NativePackRuntime {
    }
 
    /**
-    * 把当前渲染器摘下来。
+    * 换上一个渲染器。
     * <p>
-    * 三条拆除路径——{@link #activateRenderer(GraphRenderer, String)}、{@link #pause(Exception)}、
-    * {@link #closeActive()}——真正重复的就是这一块：取走 {@code active}、清掉 {@code activeId}、
-    * 处置旧的。原先它写了两遍半（pause 与 activate 各一份，closeActive 半个），加一个拆除场景就要
-    * 记得把这几行再抄一次。
-    * <p>
-    * <b>两条故意的差异不在这个方法里，而在调用点上，并且是显式参数：</b>
-    * <ul>
-    *    <li>{@code failure} 字段：activate <b>清</b>它、pause <b>设</b>它、close <b>不碰</b>它。
-    *        那条不对称是原件的行为（界面上显示的就是它），所以留在各自的方法体里。</li>
-    *    <li>处置方式：activate 与 pause 排到栅栏之后（{@code QUEUED}），closeActive 是同步关。
-    *        这个分歧是原件就有的，这里把它变成一个看得见的参数，而不是改掉它。</li>
-    * </ul>
-    *
-    * @return 被摘下来的那个渲染器，没有就是 {@code null}（调用方还要用它算"要不要重建几何"）
+    * 拆除（摘下来、清 {@code failure}/{@code sceneFailure}、把旧的排队关掉）都在
+    * {@link SceneFrame#attach}／{@link SceneFrame#detach} 里；这里只剩政策：换完之后要不要重建几何。
+    * 那一问看的是**新旧两侧**的材质表——旧的那份失效了、或者新的那份需要材质编码，都要重建。
     */
-   private GraphRenderer detach(Disposal disposal) {
-      GraphRenderer old = this.active;
-      this.active = null;
-      this.activeId = null;
-
-      if (old != null) {
-         if (disposal == Disposal.QUEUED) {
-            this.host.queueFence(old::close);
-         } else {
-            old.close();
-         }
-      }
-
-      return old;
-   }
-
-   /** 被摘下来的渲染器怎么处置。 */
-   private enum Disposal {
-      /** 排到栅栏之后：当前帧可能还在用它的资源。 */
-      QUEUED,
-      /** 当场关掉。 */
-      SYNCHRONOUS
-   }
-
    private void activateRenderer(GraphRenderer next, String id) {
-      this.sceneFailure = null;
-      this.failure = null;
-      GraphRenderer old = this.detach(Disposal.QUEUED);
-      this.active = next;
-      this.activeId = next == null ? null : id;
+      GraphRenderer old = this.frame.detach(SceneFrame.Disposal.QUEUED);
+      this.frame.attach(next, id);
       if (old != null && old.materials().enabled() || next != null && next.materials().enabled()) {
-         this.geometryRebuildPending = true;
-      }
-
-   }
-
-   private void closeActive() {
-      this.detach(Disposal.SYNCHRONOUS);
-   }
-
-   /**
-    * 暂停：记下失败、丢掉渲染器、排队关闭、请求重建几何。
-    * <p>
-    * 与 {@link #closeActive()} 的差别是**故意的**：这里设置 {@code failure} 供界面显示，
-    * 而 {@code closeActive()} 不清它。这条不对称是原件的行为，不是笔误——改它会改变用户看到的东西。
-    */
-   private void pause(Exception problem) {
-      this.failure = "Shader pack paused: " + problem.getMessage();
-      LogUtils.getLogger().error(this.failure, problem);
-      GraphRenderer old = this.detach(Disposal.QUEUED);
-      if (old != null && old.materials().enabled()) {
-         this.geometryRebuildPending = true;
-      }
-
-   }
-
-   // ---------------------------------------------------------------- 实例：scene frame
-
-   private boolean renderNow(ShaderConfig config, CameraRenderState camera, Matrix4fc view) {
-      if (backendReady(config) && this.active != null && config.selectedPackId().equals(this.activeId)) {
-         try {
-            this.active.render(this.host.mainRenderTarget(), camera, view, this.host.level());
-         } catch (Exception problem) {
-            this.pause(problem);
-         }
-
-         return true;
-      } else {
-         return false;
+         this.frame.requestGeometryRebuild();
       }
    }
 
-   private boolean usesNativeTransparencyNow() {
-      return this.active != null && !ShaderRuntime.resourceReloading();
-   }
-
-   /**
-    * 见 {@link #wrapScenePass(RenderPass, RenderPassDescriptor)}。
-    * <p>
-    * 颜色纹理是**惰性**递进去的：每帧都有很多 {@code createRenderPass}，光影没开时前三项就否了，
-    * 不该在这一步去问游戏——原件就是这个顺序。
-    */
-   private RenderPass wrapScenePassNow(RenderPass pass, RenderPassDescriptor descriptor) {
-      return SceneRenderPass.wrap(pass, descriptor, this.usesNativeTransparencyNow(), () -> this.host.mainRenderTarget().getColorTexture());
-   }
-
-   private boolean shadowFrameReadyNow() {
-      return this.sceneActive && this.camera != null && !this.geometryRebuildPending && this.sceneFailure == null;
-   }
-
-   private HeldLightShadowRenderer heldShadowsNow() {
-      return this.shadowFrameReadyNow() && this.active != null ? this.active.heldShadows() : null;
-   }
-
-   /**
-    * 开／关本帧的 frame scope，并强制它是**平衡**的。
-    * <p>
-    * 这一对由 {@code NativeSceneMixin} 在 {@code renderLevel} 的首尾各调一次；开发期门禁
-    * （另一个模块，见 {@code src/smoke}）也拿它给一段自建的 pass 圈一个作用域。不配对的调用（重复开、或没开就关）是 bug，
-    * 而且原先是一个静默的状态赋值——一帧画错不会有任何提示。
-    */
-   private void setFrameScopeNow(boolean enabled) {
-      if (enabled && this.frameScope) {
-         throw new IllegalStateException("Caldera frame scope opened twice: a previous scope(true) was never closed");
-      }
-
-      if (!enabled && !this.frameScope) {
-         throw new IllegalStateException("Caldera frame scope closed twice: scope(false) without an open scope(true)");
-      }
-
-      this.frameScope = enabled;
-      this.sceneActive = enabled;
-   }
-
-   private void captureHandProjectionNow(Matrix4fc projection) {
-      if (this.sceneActive && this.active != null) {
-         this.active.handProjection(projection);
-      }
-   }
-
-   private void beginSceneNow(CameraRenderState currentCamera, Matrix4fc currentView, LevelRenderState state, float partialTick) {
-      if (!this.frameScope) {
-         throw new IllegalStateException("Caldera beginScene() outside a frame scope: scope(true) must open the frame first");
-      }
-
-      if (this.sceneBegun) {
-         throw new IllegalStateException("Caldera scene begun twice without an intervening finishScene()");
-      }
-
-      if (!this.geometryRebuildPending && GraphFrame.cameraReady(currentCamera, currentView)) {
-         this.camera = currentCamera;
-         this.view = currentView == null ? null : new Matrix4f(currentView);
-         // 第 3 步：beginScene 自己开 scene。原先必须由调用方先用 scope(true) 开好，
-         // 而那条依赖只存在于 mixin 的注入顺序里，读代码看不出来。
-         this.sceneActive = true;
-         this.sceneBegun = true;
-         if (this.active != null) {
-            try {
-               this.active.projection(this.worldProjection);
-               this.active.environment(state, this.host.level(), partialTick);
-               this.active.beginScene(this.host.mainRenderTarget(), this.camera, this.view, this.host.level());
-            } catch (Exception problem) {
-               this.pause(problem);
-            }
-         }
-      } else {
-         this.sceneActive = false;
-         this.sceneBegun = false;
-         this.camera = null;
-         this.view = null;
-         if (this.active != null) {
-            this.active.invalidateHistory();
-         }
-      }
-   }
-
-   /**
-    * 关掉本帧的 scene。
-    * <p>
-    * <b>为什么"开过 frame scope 但没开过 scene"必须是空操作：</b>资源重载期间
-    * {@code LevelRendererPostMixin} 会跳过 {@code beginScene}，而 {@code scope(true)} 与
-    * {@code finishScene()} 照常发。那条路径每次重载都会走，它不是 bug。
-    * 真正的 bug 是"没有任何 frame scope 就 finish"——那才是重复关闭。
-    */
-   private void finishSceneNow() {
-      if (!this.frameScope) {
-         throw new IllegalStateException("Caldera finishScene() without an open frame scope: scope(true) was never called for this frame");
-      }
-
-      boolean ready = this.sceneActive && this.camera != null;
-      this.frameScope = false;
-      this.sceneActive = false;
-      this.sceneBegun = false;
-      if (this.sceneFailure != null) {
-         Exception problem = this.sceneFailure;
-         this.sceneFailure = null;
-         this.pause(problem);
-      } else if (ready && !ShaderRuntime.resourceReloading()) {
-         this.renderNow(ShaderRuntime.config(), this.camera, this.view);
-      }
-
-      this.camera = null;
-      this.view = null;
-   }
-
-   private RenderPassDescriptor sceneAttachmentsNow(RenderPassDescriptor descriptor) {
-      return !ShadowPassScope.active() && this.sceneActive && this.active != null && !ShaderRuntime.resourceReloading()
-            ? this.active.sceneAttachments(descriptor, this.host.mainRenderTarget())
-            : descriptor;
-   }
-
-   private RenderPipeline scenePipelineNow(RenderPipeline base, List<RenderPassDescriptor.Attachment<Optional<Vector4fc>>> attachments) {
-      if (!ShadowPassScope.active() && this.sceneActive && this.active != null && !ShaderRuntime.resourceReloading()) {
-         boolean targets = this.active.hasSceneAttachments(attachments);
-         if (this.sceneFailure != null) {
-            return this.active.sceneFallback(base, targets);
-         } else {
-            try {
-               RenderPipeline replacement = this.active.scenePipeline(base, targets);
-               if (ScenePrograms.isReplacement(replacement) && this.active.shadowQuality() > 0 && !DirectionalShadowRenderer.get().resourcesReady()) {
-                  throw new IllegalStateException("Shadow producer did not run before native terrain");
-               } else {
-                  return replacement;
-               }
-            } catch (Exception problem) {
-               this.sceneFailure = problem;
-               return this.active.sceneFallback(base, targets);
-            }
-         }
-      } else {
-         return base;
-      }
-   }
-
-   private void bindSceneUniformsNow(RenderPass pass, RenderPipeline pipeline) {
-      if (this.sceneActive && this.active != null) {
-         this.active.bindSceneUniforms(pass, pipeline);
-      }
-   }
-
-   private GpuTextureView weatherViewNow() {
-      return this.sceneActive && this.camera != null && this.active != null && this.sceneFailure == null && !ShaderRuntime.resourceReloading()
-            ? this.active.weatherView()
-            : null;
-   }
-
-   private void captureTerrainNow() {
-      if (this.sceneActive && this.camera != null && this.active != null && this.sceneFailure == null && !ShaderRuntime.resourceReloading()) {
-         try {
-            SceneRenderPass.outside(() -> this.active.captureTerrain(this.host.mainRenderTarget()));
-         } catch (Exception problem) {
-            this.sceneFailure = problem;
-         }
-      }
-   }
-
-   private void captureTranslucentDepthNow() {
-      if (this.sceneActive && this.camera != null && this.active != null && this.sceneFailure == null && !ShaderRuntime.resourceReloading()) {
-         RenderTarget target = this.host.mainRenderTarget();
-         try {
-            SceneRenderPass.outside(() -> this.active.captureWorldDepth(target));
-         } catch (Exception problem) {
-            this.sceneFailure = problem;
-         }
-      }
-   }
-
-   /**
-    * 保留世界深度，供手部渲染之后的 3D HUD 用。
-    * <p>
-    * 这一条**故意不包** {@code SceneRenderPass.outside}：它的注入点是 {@code GameRenderer.render3dHud}
-    * 里 {@code clearDepthTexture} 之前，也就是关卡早就画完、scene pass 已经关掉的手部渲染阶段——
-    * 那个时刻本来就没有活跃 pass，包一层会是空转。上面 {@code captureTranslucentDepthNow} 看起来
-    * 做着同一件事却必须包，是因为它跑在关卡渲染**之中**，那时 pass 正开着。
-    */
-   private void captureWorldDepthNow() {
-      if (this.sceneActive && this.camera != null && this.active != null && this.sceneFailure == null && !ShaderRuntime.resourceReloading()) {
-         try {
-            this.active.captureWorldDepth(this.host.mainRenderTarget());
-         } catch (Exception problem) {
-            this.sceneFailure = problem;
-         }
-      }
-   }
-
-   private void flushGeometryRebuildNow() {
-      if (this.geometryRebuildPending && !ShaderRuntime.resourceReloading()) {
-         this.geometryRebuildPending = false;
-         // 原件用 `client.level != null` 同时守住提交与重建两步，所以这里也守两步：
-         // 把 level() 的判断上提到调用方，端口那边才不必为一个不会发生的 null 写防卫代码。
-         if (this.host.level() != null) {
-            this.host.submitCommands();
-            this.host.invalidateCompiledGeometry();
-         }
-      }
-   }
-
-   /**
-    * 这个包是否会替换原版的天空或云。
-    * <p>
-    * 原件用 {@code label33} 跳出嵌套，语义是：只有在主世界、且 scene 就绪、且这个包的
-    * {@code environment} 声明了对应那一项时才是 {@code true}；任何一项不成立就落到 {@code false}。
-    */
-   private boolean replacesEnvironmentNow(boolean clouds) {
-      if (this.active != null && this.shadowFrameReadyNow() && !ShaderRuntime.resourceReloading() && this.host.inOverworld()) {
-         if (clouds) {
-            if (this.active.environment().clouds()) {
-               return true;
-            }
-         } else if (this.active.environment().sky()) {
-            return true;
-         }
-      }
-
-      return false;
-   }
-
-   private int shadowQualityNow() {
-      return this.active == null ? 0 : this.active.shadowQuality();
-   }
-
-   private int shadowDistanceNow() {
-      return this.active == null ? 128 : this.active.shadowDistance();
-   }
-
-   // ---------------------------------------------------------------- pack 文件（candidate 3 的范围）
+   // ---------------------------------------------------------------- pack 文件
 
    private static PackFiles packFiles(String id) throws IOException {
       return "__builtin__".equals(id) ? PackFiles.bundled() : PackFiles.read(ShaderPackScanner.shaderPackDirectory().resolve(id));
