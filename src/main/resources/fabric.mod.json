@@ -5,7 +5,7 @@
 	"name": "Caldera",
 	"description": "Native shader support for Minecraft's Vulkan renderer, powered by Sodium.",
 	"authors": [
-		"mravatin"
+		"Mike_Ski"
 	],
 	"environment": "client",
 	"entrypoints": {
