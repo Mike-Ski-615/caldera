@@ -258,11 +258,6 @@ final class InstalledPackRuntime implements PackRuntime {
    // ------------------------------------------------------------- 查询（一行转发）
 
    @Override
-   public boolean shadowFrameReady() {
-      return this.frame.shadowFrameReady();
-   }
-
-   @Override
    public boolean shadowsEnabled() {
       // 顺序与原先各调用点写的一致：先质量、后帧就绪。
       return this.frame.shadowQuality() > 0 && this.frame.shadowFrameReady();
@@ -279,18 +274,8 @@ final class InstalledPackRuntime implements PackRuntime {
    }
 
    @Override
-   public boolean render(ShaderConfig config, CameraRenderState camera, Matrix4fc view) {
-      return this.frame.render(config, camera, view);
-   }
-
-   @Override
    public boolean replacesEnvironment(boolean clouds) {
       return this.frame.replacesEnvironment(clouds);
-   }
-
-   @Override
-   public int shadowQuality() {
-      return this.frame.shadowQuality();
    }
 
    @Override
@@ -306,21 +291,6 @@ final class InstalledPackRuntime implements PackRuntime {
    @Override
    public MaterialTable materials() {
       return this.frame.materials();
-   }
-
-   @Override
-   public long terrainCaptures() {
-      return this.frame.terrainCaptures();
-   }
-
-   @Override
-   public long renderedFrames() {
-      return this.frame.renderedFrames();
-   }
-
-   @Override
-   public long sceneReplacementCount() {
-      return this.frame.sceneReplacementCount();
    }
 
    // ------------------------------------------------------------- pack 文件

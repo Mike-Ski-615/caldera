@@ -149,16 +149,6 @@ final class NotInstalledPackRuntime implements PackRuntime {
 
    // ------------------------------------------------------------- 查询
 
-   /**
-    * {@code false}，**无条件**——这与 {@link SceneFrame#shadowFrameReady()} 那条"故意不看有没有渲染器"
-    * 的契约不同：那一边在场景开着时可能答 {@code true}，因为"运行时装好了、只是没有包生效"与"整份运行时
-    * 还没装"不是同一件事。所以这一问不能委托给 {@link AbsentRenderer}。
-    */
-   @Override
-   public boolean shadowFrameReady() {
-      return false;
-   }
-
    /** {@code false}：没有生效的包，也就没有"该不该投射阴影"这回事（与质量为零同一个答案）。 */
    @Override
    public boolean shadowsEnabled() {
@@ -169,8 +159,7 @@ final class NotInstalledPackRuntime implements PackRuntime {
     * 这些查询与 {@link AbsentRenderer}（"运行时装好了、没有包生效"那一份）**答案相同**，
     * 所以直接委托它——"缺席时答什么"在渲染器那道缝上已经有一份可读、可测的定义，这里不再抄第二遍。
     * <p>
-    * 不委托的是那几处**故意不同**的：{@link #shadowFrameReady()}（见上）、{@link #render}
-    * （未安装时必须在触碰参数之前就答，见它的注释）与那六个入口（未安装时要抛）。
+    * 不委托的是那六个入口（未安装时要抛，见它们各自的注释）。
     */
    @Override
    public HeldLightShadowRenderer heldShadows() {
@@ -187,24 +176,10 @@ final class NotInstalledPackRuntime implements PackRuntime {
       return false;
    }
 
-   /**
-    * 永远 {@code false}，而且**必须在触碰参数之前**回答：未安装时调用方可能连设置都没准备好
-    * （{@code render(null, null, null)} 是允许的）。
-    */
-   @Override
-   public boolean render(ShaderConfig config, CameraRenderState camera, Matrix4fc view) {
-      return false;
-   }
-
    /** 见 {@link #usesNativeTransparency()} 上那条注释：这也是帧状态门闸，不在渲染器那道缝上。 */
    @Override
    public boolean replacesEnvironment(boolean clouds) {
       return false;
-   }
-
-   @Override
-   public int shadowQuality() {
-      return AbsentRenderer.INSTANCE.shadowQuality();
    }
 
    @Override
@@ -220,20 +195,5 @@ final class NotInstalledPackRuntime implements PackRuntime {
    @Override
    public MaterialTable materials() {
       return AbsentRenderer.INSTANCE.materials();
-   }
-
-   @Override
-   public long terrainCaptures() {
-      return AbsentRenderer.INSTANCE.terrainCaptures();
-   }
-
-   @Override
-   public long renderedFrames() {
-      return AbsentRenderer.INSTANCE.renderedFrames();
-   }
-
-   @Override
-   public long sceneReplacementCount() {
-      return AbsentRenderer.INSTANCE.sceneReplacementCount();
    }
 }

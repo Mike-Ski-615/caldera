@@ -12,13 +12,12 @@ import com.mojang.renderpearl.api.textures.GpuSampler;
  * 以及两张实体图。
  * <p>
  * <b>它现在只剩这一件事。</b>原先它还转着一组查询——{@code enabled()}、{@code quality()}、
- * {@code distance()}、{@code memoryBytes()}、{@code planStats()}——而那些查询的拥有者不是它：
- * 质量与距离是**包声明的**（graph 侧的事实），统计是**计划模块的**，显存预算是 **sizing 算术的**。
- * 一个模块同时是"查询转发表"和"绑定名表"，读的人就分不清哪一半该改哪里。现在它们各归其主：
+ * {@code distance()}、{@code memoryBytes()}——而那些查询的拥有者不是它：质量与距离是**包声明的**
+ * （graph 侧的事实），显存预算是 **sizing 算术的**。一个模块同时是"查询转发表"和"绑定名表"，
+ * 读的人就分不清哪一半该改哪里。现在它们各归其主：
  * <ul>
  *    <li>档位与距离 → {@link DirectionalShadowRenderer}（它每帧拿到这两个输入）；</li>
- *    <li>显存预算 → {@link CascadePlanner#shadowMemoryBytes(int)}（sizing 算术本来就在那里）；</li>
- *    <li>计划统计 → {@link DirectionalShadowRenderer#planStats()}（门禁直接问它）。</li>
+ *    <li>显存预算 → {@link CascadePlanner#shadowMemoryBytes(int)}（sizing 算术本来就在那里）。</li>
  * </ul>
  * 留下 {@link #layout} 与 {@link #bindTerrain} 的理由很具体：那几个 uniform 名字是**阴影自己的知识**，
  * graph 侧的渲染器看不懂也不该懂。

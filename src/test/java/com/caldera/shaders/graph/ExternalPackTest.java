@@ -2,7 +2,6 @@ package com.caldera.shaders.graph;
 
 import com.caldera.shaders.config.ShaderConfig;
 import com.caldera.shaders.runtime.FakeShaderHost;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -43,11 +42,6 @@ class ExternalPackTest {
 	void installAFakeHost() {
 		this.host = new FakeShaderHost();
 		NativePackRuntime.install(this.host);
-	}
-
-	@AfterEach
-	void leaveNotInstalled() {
-		NativePackRuntime.uninstall();
 	}
 
 	private static String readFixture() {
@@ -136,15 +130,5 @@ class ExternalPackTest {
 	@Test
 	void theBuiltinPackIsSelectedWithoutTouchingTheDisk(@TempDir Path nowhere) {
 		assertTrue(InstalledPackRuntime.selected(new ShaderConfig(true, ShaderConfig.BUILTIN_PACK_ID), nowhere));
-	}
-
-	// ------------------------------------------------------------ 缺席时仍然拒绝
-
-	@Test
-	void openingAnExternalPackWithoutAnInstanceStillRefuses(@TempDir Path packsRoot) throws IOException {
-		writeExternalPack(packsRoot);
-		NativePackRuntime.uninstall();
-
-		assertThrows(IllegalStateException.class, () -> NativePackRuntime.settings(PACK_ID));
 	}
 }

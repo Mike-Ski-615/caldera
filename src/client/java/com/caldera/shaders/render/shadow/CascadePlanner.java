@@ -67,8 +67,6 @@ public final class CascadePlanner {
    private final long[] renderedFrameSerial = new long[CASCADE_COUNT];
    private final long[] renderedTerrainRevision = new long[CASCADE_COUNT];
    private final long[] renderedEntityFrameSerial = new long[CASCADE_COUNT];
-   /** 每个级联被要求重画地形的帧数，只供统计，不参与决策。 */
-   private final long[] terrainUpdateCounts = new long[CASCADE_COUNT];
    private final Vector3f lightDirection = new Vector3f(0.0F, -1.0F, 0.0F);
    private final Vector3f sunDirection = new Vector3f();
    private final Vector3f moonDirection = new Vector3f();
@@ -188,9 +186,6 @@ public final class CascadePlanner {
          if (i < activeCascadeCount) {
             boolean update = this.shouldUpdateCascade(i, layoutChanged, terrainRevision);
             this.cascadeUpdates[i] = needsTerrainRefresh(update, animatedShadowCasters);
-            if (this.cascadeUpdates[i]) {
-               ++this.terrainUpdateCounts[i];
-            }
 
             if (update) {
                float start = i == 0 ? 0.5F : splits[i - 1] * 0.82F;
@@ -263,21 +258,6 @@ public final class CascadePlanner {
    }
 
    /**
-    * 当前的太阳方向。包可见：只有 {@link DirectionalShadowRenderer} 把它转成公开的只读访问器。
-    * <p>
-    * 返回的是内部那个向量本身，调用方**必须立刻拷走**（{@code DirectionalShadowRenderer} 是
-    * {@code set()} 进调用方给的 destination）。与 {@code planner()} 一样，这是包内信任。
-    */
-   Vector3f sunDirection() {
-      return this.sunDirection;
-   }
-
-   /** 当前的月亮方向。理由与{@link #sunDirection()}完全相同。 */
-   Vector3f moonDirection() {
-      return this.moonDirection;
-   }
-
-   /**
     * 这一帧没有计划（未启用，或没有可用的相机）。
     * <p>
     * <b>为什么不是 {@link CascadeSchedule#empty()}：</b>迁移前那条 else 分支只写了一行
@@ -322,17 +302,6 @@ public final class CascadePlanner {
 
          return bytes;
       }
-   }
-
-   /** 只读统计快照；不参与任何决策。 */
-   public CascadePlanStats stats() {
-      long churn = 0L;
-
-      for(long version : this.cascadeLayoutVersions) {
-         churn += version;
-      }
-
-      return new CascadePlanStats(this.terrainUpdateCounts, churn);
    }
 
    /**

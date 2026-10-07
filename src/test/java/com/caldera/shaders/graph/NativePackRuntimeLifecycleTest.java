@@ -5,7 +5,6 @@ import com.caldera.shaders.runtime.FakeShaderHost;
 import java.util.Map;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import org.joml.Matrix4f;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -18,8 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link NativePackRuntime} 的三条契约：门面在**未安装**时的安全答案、渲染器失败的记录语义、
- * 以及 frame 与 scene 的顺序强制。
+ * {@link NativePackRuntime} 的**失败记录语义**：场景失败怎么被记成渲染器失败、什么时候被清掉。
  * <p>
  * 全部在 {@code active == null} 之下跑（见 candidate 1 第 4 轮的决定）：{@code active} 是具体的
  * {@link GraphRenderer}，要让"有 renderer"的路径也可测，就得造一个接口里带着 Minecraft 类型的
@@ -30,6 +28,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 那条依赖只存在于 mixin 的注入顺序里：{@code NativeSceneMixin} 在 {@code renderLevel} 首尾调
  * {@code scope}，{@code LevelRendererPostMixin} 在 {@code LevelRenderer.render} 头部调
  * {@code beginScene}。读代码看不出来，而顺序错了只是安静地画错一帧。
+ * <p>
+ * <b>这个文件比它原来小，失去的两条契约记在这里，不留给人猜：</b>它原先还覆盖"未安装时门面给出
+ * 安全答案"与"frame/scene 顺序强制"，而那两条的观测手段——{@code NativePackRuntime.uninstall()}
+ * 与 {@code shadowFrameReady()}——随运行时观察面一起移除了：没有前者就摆不出"未安装"这个状态，
+ * 没有后者就没有任何东西能回答"scene 开没开"。随之删除的用例：
+ * {@code queriesAnswerSafelyWhenNoInstanceIsInstalled}、
+ * {@code renderReportsThatNothingWasDrawnWhenNoInstanceIsInstalled}、
+ * {@code everyVoidFacadeIsANoOpWhenNoInstanceIsInstalled}、
+ * {@code theLifecycleEntriesRefuseToRunWithoutAnInstance}、
+ * {@code aFrameSceneBecomesReadyWithoutASeparateSceneOpen}、{@code finishingASceneClosesIt}、
+ * {@code aPendingGeometryRebuildKeepsTheSceneClosed}、
+ * {@code flushingAPendingRebuildClearsItAndLetsTheNextFrameBegin}。
+ * <p>
+ * 顺序强制里**仍然可测**的是"错了会抛"那一半，它不依赖任何查询——见
+ * {@code beginningASceneOutsideAFrameScopeThrows}、{@code openingAFrameScopeTwiceThrows} 与
+ * {@code closingAFrameScopeThatWasNeverOpenedThrows}。
  */
 class NativePackRuntimeLifecycleTest {
 
@@ -37,81 +51,14 @@ class NativePackRuntimeLifecycleTest {
    private FakeShaderHost host;
 
    @BeforeEach
-   void resetToNotInstalled() {
+   void installAFreshHost() {
       this.host = new FakeShaderHost();
-      NativePackRuntime.uninstall();
-   }
-
-   @AfterEach
-   void leaveNotInstalled() {
-      NativePackRuntime.uninstall();
+      NativePackRuntime.install(this.host);
    }
 
    /** 一个真实可用的相机与视图。探针实测过：新建的 CameraRenderState 就能过 cameraReady。 */
    private static void beginFrameScene() {
       NativePackRuntime.beginScene(new CameraRenderState(), new Matrix4f(), null, 0.0F);
-   }
-
-   // ---------------------------------------------------------------- 未安装时的安全答案
-
-   @Test
-   void queriesAnswerSafelyWhenNoInstanceIsInstalled() {
-      assertNull(NativePackRuntime.failure());
-      assertNull(NativePackRuntime.heldShadows());
-      assertNull(NativePackRuntime.materials());
-      assertNull(NativePackRuntime.weatherView());
-
-      assertFalse(NativePackRuntime.shadowFrameReady());
-      assertFalse(NativePackRuntime.shadowsEnabled(), "没装东西就不该投射阴影（合取的另一半是质量 0）");
-      assertFalse(NativePackRuntime.usesNativeTransparency());
-      assertFalse(NativePackRuntime.animatedShadowCasters());
-      assertFalse(NativePackRuntime.replacesEnvironment(true));
-      assertFalse(NativePackRuntime.replacesEnvironment(false));
-
-      assertEquals(0, NativePackRuntime.shadowQuality());
-      assertEquals(128, NativePackRuntime.shadowDistance());
-      assertEquals(0L, NativePackRuntime.renderedFrames());
-      assertEquals(0L, NativePackRuntime.sceneReplacementCount());
-      assertEquals(0L, NativePackRuntime.terrainCaptures());
-   }
-
-   @Test
-   void renderReportsThatNothingWasDrawnWhenNoInstanceIsInstalled() {
-      // 三个参数都是 null：未安装时门面必须在**触碰它们之前**就返回 false。
-      assertFalse(NativePackRuntime.render(null, null, null));
-   }
-
-   @Test
-   void everyVoidFacadeIsANoOpWhenNoInstanceIsInstalled() {
-      assertDoesNotThrow(() -> {
-         NativePackRuntime.captureHandProjection(null);
-         NativePackRuntime.captureWorldProjection(null);
-         NativePackRuntime.scope(true);
-         NativePackRuntime.beginScene(null, null, null, 0.0F);
-         NativePackRuntime.finishScene();
-         NativePackRuntime.bindSceneUniforms(null, null);
-         NativePackRuntime.captureTerrain();
-         NativePackRuntime.captureTranslucentDepth();
-         NativePackRuntime.captureWorldDepth();
-         NativePackRuntime.failScene(new IllegalStateException("nobody is listening"));
-         NativePackRuntime.flushGeometryRebuild();
-         NativePackRuntime.requestGeometryRebuild();
-         NativePackRuntime.activate(null, null);
-         NativePackRuntime.close();
-         // scope(false) 也必须是空操作：顺序强制只在**装好之后**才生效，
-         // 否则"未安装"这个安全状态本身就会开始抛。
-         NativePackRuntime.scope(false);
-      });
-
-      assertNull(NativePackRuntime.failure());
-      assertFalse(NativePackRuntime.shadowFrameReady());
-   }
-
-   @Test
-   void theLifecycleEntriesRefuseToRunWithoutAnInstance() {
-      assertThrows(IllegalStateException.class, () -> NativePackRuntime.prepare(null));
-      assertThrows(IllegalStateException.class, () -> NativePackRuntime.settings("__builtin__"));
-      assertThrows(IllegalStateException.class, () -> NativePackRuntime.applyOptions("__builtin__", java.util.Map.of()));
    }
 
    // ---------------------------------------------------------------- 失败记录的语义
@@ -179,60 +126,6 @@ class NativePackRuntimeLifecycleTest {
    // ---------------------------------------------------------------- frame 与 scene 的顺序
 
    @Test
-   void aFrameSceneBecomesReadyWithoutASeparateSceneOpen() {
-      NativePackRuntime.install(this.host);
-
-      NativePackRuntime.scope(true);
-      beginFrameScene();
-
-      // beginScene 自己开 scene：不再需要在它之前再手工开一个"scene 作用域"。
-      assertTrue(NativePackRuntime.shadowFrameReady());
-   }
-
-   @Test
-   void finishingASceneClosesIt() {
-      NativePackRuntime.install(this.host);
-      NativePackRuntime.scope(true);
-      beginFrameScene();
-      assertTrue(NativePackRuntime.shadowFrameReady());
-
-      NativePackRuntime.finishScene();
-
-      assertFalse(NativePackRuntime.shadowFrameReady());
-   }
-
-   @Test
-   void aPendingGeometryRebuildKeepsTheSceneClosed() {      NativePackRuntime.install(this.host);
-      NativePackRuntime.scope(true);
-      NativePackRuntime.requestGeometryRebuild();
-
-      beginFrameScene();
-
-      assertFalse(NativePackRuntime.shadowFrameReady());
-   }
-
-   @Test
-   void flushingAPendingRebuildClearsItAndLetsTheNextFrameBegin() {
-      NativePackRuntime.install(this.host);
-
-      NativePackRuntime.scope(true);
-      NativePackRuntime.requestGeometryRebuild();
-      beginFrameScene();
-      assertFalse(NativePackRuntime.shadowFrameReady());
-
-      // 没有世界（host.level() 为 null）时不许提交命令、也不许动几何——
-      // 这两步在原件里是同一个 `client.level != null` 守卫罩着的两件事。
-      NativePackRuntime.flushGeometryRebuild();
-      assertTrue(this.host.gpuCommands.isEmpty());
-      NativePackRuntime.finishScene();
-
-      // 下一帧：pending 已经清掉，scene 就绪。
-      NativePackRuntime.scope(true);
-      beginFrameScene();
-      assertTrue(NativePackRuntime.shadowFrameReady());
-   }
-
-   @Test
    void flushingWithoutAPendingRebuildIsANoOp() {
       NativePackRuntime.install(this.host);
 
@@ -282,7 +175,6 @@ class NativePackRuntimeLifecycleTest {
       // 资源重载期间 LevelRendererPostMixin 会跳过 beginScene，而 scope 与 finishScene 照常发。
       // 那条路径每次重载都会走，它不是 bug——所以"开了 frame 但没开 scene"必须安静地过去。
       assertDoesNotThrow(NativePackRuntime::finishScene);
-      assertFalse(NativePackRuntime.shadowFrameReady());
    }
 
    // ---------------------------------------------------------------- 游戏能力走端口之后

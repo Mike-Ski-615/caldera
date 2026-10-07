@@ -52,21 +52,6 @@ final class InstalledRenderer implements ActiveRenderer {
    }
 
    @Override
-   public long renderedFrames() {
-      return this.renderer.renderedFrames();
-   }
-
-   @Override
-   public long sceneReplacementCount() {
-      return this.renderer.sceneReplacementCount();
-   }
-
-   @Override
-   public long terrainCaptures() {
-      return this.renderer.terrainCaptures();
-   }
-
-   @Override
    public int shadowQuality() {
       return this.renderer.shadowQuality();
    }

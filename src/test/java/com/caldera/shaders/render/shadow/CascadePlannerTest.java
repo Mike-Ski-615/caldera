@@ -277,13 +277,6 @@ class CascadePlannerTest {
       // 一模一样的第二帧：不该再 bump。
       CascadeSchedule second = frame.plan(planner);
       assertEquals(1L, second.layoutVersion(0));
-      long churn = 0L;
-
-      for(int cascade = 0; cascade < second.activeCascadeCount(); ++cascade) {
-         churn += second.layoutVersion(cascade);
-      }
-
-      assertEquals(churn, planner.stats().totalLayoutVersionChurn());
    }
 
    // ---------------------------------------------------------------- 覆盖范围
@@ -432,25 +425,5 @@ class CascadePlannerTest {
       assertEquals(0.0F, identity.cameraForward().x(), 1.0E-6F);
       assertEquals(0.0F, identity.cameraForward().y(), 1.0E-6F);
       assertEquals(-1.0F, identity.cameraForward().z(), 1.0E-6F);
-   }
-
-   // ---------------------------------------------------------------- 统计
-   @Test
-   void theStatisticsCountTerrainUpdatesPerCascadeAndTotalLayoutChurn() {
-      CascadePlanner planner = new CascadePlanner();
-      Frame frame = new Frame();
-      frame.plan(planner);
-      frame.plan(planner);
-      frame.plan(planner);
-      frame.plan(planner);
-
-      CascadePlanStats stats = planner.stats();
-
-      // 第 1 帧全部更新；第 4 帧只有级联 0 到期（间隔 3）。所以 (2, 1, 1)。
-      assertEquals(2L, stats.terrainUpdates(0));
-      assertEquals(1L, stats.terrainUpdates(1));
-      assertEquals(1L, stats.terrainUpdates(2));
-      assertEquals(0L, stats.terrainUpdates(3));
-      assertEquals(3L, stats.totalLayoutVersionChurn());
    }
 }

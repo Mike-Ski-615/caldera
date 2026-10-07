@@ -24,13 +24,9 @@ import org.joml.Vector4fc;
  * <p>
  * <b>它与 {@code NotInstalledPackRuntime} 不是同一件事，别合并。</b>那一个答的是「整份光影运行时还没装」
  * ——客户端初始化之前、以及每个测试 JVM 里都存在；这一个答的是「运行时装好了，但没有包生效」。
- * 两者有两处**故意不同**的回答，正是它们不是同一件事的证据：
- * <ul>
- *   <li>{@code shadowFrameReady()} 在那一边无条件 {@code false}，而这一边根本不看有没有渲染器
- *       （见 {@link SceneFrame#shadowFrameReady()}）；</li>
- *   <li>{@code render(null, null, null)} 在那一边安全返回 {@code false}（它承诺在触碰参数之前就回答），
- *       而 {@link SceneFrame#render} 会照常读 {@code config.enabled()}。</li>
- * </ul>
+ * 两者原先靠两处**故意不同**的回答来证明这一点（{@code shadowFrameReady()} 与
+ * {@code render(null, null, null)} 在"没装"那一边有各自的短路约定）；那两个门面方法已随运行时
+ * 观察面一起收回，所以这个区分现在只由语义承担。
  * <p>
  * <b>但它确实是"缺席时答什么"的那一份定义。</b>{@code NotInstalledPackRuntime} 里那些答案相同的查询
  * 直接委托 {@link #INSTANCE}——那些常量（{@code 0} / {@code 128} / {@code null} / {@code false} /
@@ -70,21 +66,6 @@ final class AbsentRenderer implements ActiveRenderer {
    @Override
    public HeldLightShadowRenderer heldShadows() {
       return null;
-   }
-
-   @Override
-   public long renderedFrames() {
-      return 0L;
-   }
-
-   @Override
-   public long sceneReplacementCount() {
-      return 0L;
-   }
-
-   @Override
-   public long terrainCaptures() {
-      return 0L;
    }
 
    @Override

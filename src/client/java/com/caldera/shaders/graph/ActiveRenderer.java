@@ -77,15 +77,6 @@ interface ActiveRenderer {
    /** 手持光源的阴影渲染器；这个包没有声明 {@code HELD_LIGHTING} 时为 {@code null}。 */
    HeldLightShadowRenderer heldShadows();
 
-   /** 已经渲染了多少帧。门禁用它记录。 */
-   long renderedFrames();
-
-   /** 场景被替换了多少次。门禁用它记录。 */
-   long sceneReplacementCount();
-
-   /** 捕获过多少次地形。门禁用它记录。 */
-   long terrainCaptures();
-
    /** 本包声明的方向光阴影质量档位；0 表示不投射阴影。 */
    int shadowQuality();
 

@@ -116,14 +116,12 @@ interface PackRuntime {
 
    // ------------------------------------------------------------- 查询
 
-   boolean shadowFrameReady();
-
    /**
     * 现在该不该投射阴影：这个包开了阴影，**而且**这一帧的场景就绪。
     * <p>
-    * 它是 {@link #shadowQuality()} 与 {@link #shadowFrameReady()} 的合取，单独成一个名字是因为
-    * 那个合取原先散在五个调用点上各拼一遍（三个 mixin、一个装配点，还有门禁的一处注释解释它为什么
-    * 不能用）。它本来就是一个问题——"现在该不该投射阴影"——只是被拆到了调用点去拼。
+    * 它是"这个包开了阴影"与"这一帧的场景就绪"的合取，单独成一个名字是因为那个合取原先散在
+    * 五个调用点上各拼一遍（三个 mixin、一个装配点）。它本来就是一个问题——"现在该不该投射阴影"
+    * ——只是被拆到了调用点去拼。
     * <p>
     * <b>为什么放在门面上而不是 shadow 侧：</b>合取的两半拥有者不同。质量是**这个包声明的**（静态事实），
     * "这一帧 scene 就绪吗"是**帧状态**（只有 {@code SceneFrame} 答得出来）。门面两侧都够得到，
@@ -137,21 +135,11 @@ interface PackRuntime {
 
    boolean usesNativeTransparency();
 
-   boolean render(ShaderConfig config, CameraRenderState camera, Matrix4fc view);
-
    boolean replacesEnvironment(boolean clouds);
-
-   int shadowQuality();
 
    int shadowDistance();
 
    boolean animatedShadowCasters();
 
    MaterialTable materials();
-
-   long terrainCaptures();
-
-   long renderedFrames();
-
-   long sceneReplacementCount();
 }

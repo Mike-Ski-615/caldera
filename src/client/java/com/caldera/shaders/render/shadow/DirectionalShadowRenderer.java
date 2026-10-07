@@ -51,8 +51,7 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
    private static final Vector4f CLEAR = new Vector4f(1.0F, 1.0F, 1.0F, 1.0F);
    /**
     * 唯一实例。**由 {@link #install} 建出来，此后不再被置空**（{@link #close()} 与
-    * {@link #retireUnused()} 拆的是 GPU 资源，不是这个壳）；只有测试用的 {@link #uninstall()}
-    * 会把它清掉。见 {@link #get()} 与 {@link #install}。
+    * {@link #retireUnused()} 拆的是 GPU 资源，不是这个壳）。见 {@link #get()} 与 {@link #install}。
     */
    private static DirectionalShadowRenderer instance;
    /**
@@ -137,9 +136,8 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
    private double cameraZ;
 
    /**
-    * 包级可见而不是 private：{@link #get()} 的那个实例由 {@link #install} 建，但**测试也需要一个真能
-    * 分配资源的实例**来验证拆除语义——而 {@code install} 在用例之间会被 {@link #uninstall()} 清掉，
-    * 它的实例不适合当拆除测试的对象。构造器本身没有副作用（只初始化容器与 planner），
+    * 包级可见而不是 private：{@link #get()} 的那个实例由 {@link #install} 建，而测试需要另建实例
+    * 来验证拆除语义（不碰那个进程级实例）。构造器本身没有副作用（只初始化容器与 planner），
     * 所以放给同包没有风险。生产代码里唯一的构造点是 {@link #install}。
     */
    DirectionalShadowRenderer() {
@@ -181,17 +179,6 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
       return instance;
    }
 
-   /**
-    * 丢掉当前实例，回到"装配之前"。
-    * <p>
-    * 包级可见，供测试隔离：实例只建一次，所以不这么做的话，一个用例装过之后下一个用例就再也看不到
-    * 那个 null 状态了。与 {@code NativePackRuntime.uninstall()} 是同一个手法——ADR-0003 用它让
-    * "未安装时答什么"这条契约可验证。
-    */
-   static void uninstall() {
-      instance = null;
-   }
-
    @Override
    public void beginCascade(int cascade) {
       ShadowPassScope.enter(this.target(cascade), this.cascadeSlice);
@@ -219,9 +206,8 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
       boolean shadowsOn = shadowsEnabled.getAsBoolean();
       // 本帧档位：包只在"质量大于零"这一个恒定档位上（见 enabledQuality）。
       this.activeQuality = shadowsOn ? enabledQuality : ShaderQualityPreset.OFF;
-      // 日月方向与阴影质量无关：这一帧只要有天空状态就刷新，且必须在下面那道质量判定**之前**。
-      // 原因是访问器（sunDirection/moonDirection）承诺的是"本帧的天体状态"，而 prepare() 是本类的
-      // 帧入口——把它留在 plan() 里的 skyPresent 分支，就会在阴影未启用的帧上停在上一帧的值。
+      // 日月方向必须先于本帧的 plan() 刷新：plan() 按这两个方向挑光照方向（见 CascadePlanner）。
+      // 刷新留在帧入口，下面那条路径上的 plan() 读到的就一定是本帧的天体状态。
       if (levelRenderState != null && levelRenderState.skyRenderState != null) {
          this.planner.updateCelestialDirections(levelRenderState.skyRenderState.sunAngle, levelRenderState.skyRenderState.moonAngle);
       }
@@ -274,16 +260,6 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
       return this.schedule.activeCascadeCount();
    }
 
-   /** 计划模块的只读统计；门禁记录用。 */
-   public CascadePlanStats planStats() {
-      return this.planner.stats();
-   }
-
-   /** 包可见：让测试能直接摆布计划状态，见 {@code DirectionalShadowRendererTeardownTest}。 */
-   CascadePlanner planner() {
-      return this.planner;
-   }
-
    public long cascadeLayoutVersion(int cascade) {
       return this.schedule.layoutVersion(cascade);
    }
@@ -310,30 +286,8 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
       return destination.set(this.schedule.lightDirection());
    }
 
-   /**
-    * 本帧的太阳方向（只读）。
-    * <p>
-    * 来源与{@link #lightDirection(Vector3f)}不同：这里读的是 {@code planner} 的当前天体状态，
-    * 而不是 {@code schedule}。{@link #prepare(LevelRenderState)} 每帧都刷新前者，而后者只在阴影
-    * 真的在计划时才更新。日月的方向本身与阴影无关，所以它的时点跟着帧入口走。
-    * <p>
-    * 与 {@link #lightDirection(Vector3f)} 一样，写进调用方给的 {@code destination} 并返回它。
-    */
-   public Vector3f sunDirection(Vector3f destination) {
-      return destination.set(this.planner.sunDirection());
-   }
-
-   /** 本帧的月亮方向（只读）。理由与{@link #sunDirection(Vector3f)}完全相同。 */
-   public Vector3f moonDirection(Vector3f destination) {
-      return destination.set(this.planner.moonDirection());
-   }
-
    public Vector3f cameraForward(Vector3f destination) {
       return destination.set(this.schedule.cameraForward());
-   }
-
-   public float shadowDistance() {
-      return this.schedule.shadowDistance();
    }
 
    public float entityShadowDistance() {

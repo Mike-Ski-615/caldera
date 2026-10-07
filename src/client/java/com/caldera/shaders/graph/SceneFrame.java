@@ -554,18 +554,6 @@ final class SceneFrame {
       return this.renderer.materials();
    }
 
-   long terrainCaptures() {
-      return this.renderer.terrainCaptures();
-   }
-
-   long renderedFrames() {
-      return this.renderer.renderedFrames();
-   }
-
-   long sceneReplacementCount() {
-      return this.renderer.sceneReplacementCount();
-   }
-
    int shadowQuality() {
       return this.renderer.shadowQuality();
    }

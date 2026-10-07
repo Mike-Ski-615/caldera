@@ -24,7 +24,6 @@ final class GraphSceneCapture implements AutoCloseable {
    private int height;
    private boolean captured;
    private boolean worldDepthCaptured;
-   private long captures;
 
    static boolean isInput(String name) {
       return "$terrainOpaque".equals(name) || "$terrainOpaqueDepth".equals(name);
@@ -66,10 +65,6 @@ final class GraphSceneCapture implements AutoCloseable {
 
    long bytes(int width, int height) {
       return this.formats.values().stream().mapToLong((format) -> (long)width * (long)height * (long)format.blockSize()).sum();
-   }
-
-   long captures() {
-      return this.captures;
    }
 
    void resize(int width, int height) {
@@ -140,7 +135,6 @@ final class GraphSceneCapture implements AutoCloseable {
 
             });
             this.captured = true;
-            ++this.captures;
          } else {
             throw new IllegalStateException("Terrain snapshot size changed during scene rendering");
          }

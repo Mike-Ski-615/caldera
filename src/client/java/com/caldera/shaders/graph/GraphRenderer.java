@@ -77,7 +77,6 @@ public final class GraphRenderer implements AutoCloseable, ActiveRenderer {
    private int height;
    private int parity;
    private boolean closed;
-   private long renderedFrames;
    private final ScenePrograms scenePrograms;
    private GpuBufferSlice windUniforms;
    private final ByteBuffer windBytes = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder());
@@ -119,20 +118,8 @@ public final class GraphRenderer implements AutoCloseable, ActiveRenderer {
       return this.heldShadows;
    }
 
-   public long renderedFrames() {
-      return this.renderedFrames;
-   }
-
-   public long sceneReplacementCount() {
-      return this.scenePrograms.replacementCount();
-   }
-
    public void invalidateHistory() {
       this.frame.reset();
-   }
-
-   public long terrainCaptures() {
-      return this.sceneCapture.captures();
    }
 
    public void captureTerrain(RenderTarget main) {
@@ -462,7 +449,6 @@ public final class GraphRenderer implements AutoCloseable, ActiveRenderer {
 
          this.parity ^= 1;
          this.frame.commit(camera, view, world);
-         ++this.renderedFrames;
       }
    }
 
@@ -635,10 +621,6 @@ public final class GraphRenderer implements AutoCloseable, ActiveRenderer {
 
    public boolean animatedShadowCasters() {
       return (Double)this.graph.options().getOrDefault("VEGETATION_WIND", (double)0.0F) > (double)0.0F;
-   }
-
-   public RenderPipeline scenePipeline(RenderPipeline original) {
-      return this.scenePrograms.replace(original, !this.graph.sceneTargets().isEmpty());
    }
 
    public RenderPipeline scenePipeline(RenderPipeline original, boolean attachments) {

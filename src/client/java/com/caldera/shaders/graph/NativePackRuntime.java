@@ -31,7 +31,7 @@ import org.joml.Vector4fc;
  * "装好"与"没装"分别由 {@link InstalledPackRuntime} 与 {@link NotInstalledPackRuntime} 提供，
  * 所以"缺席时到底答什么"有一处可读、一处可测，而不是散在 15 个 {@code runtime == null} 分支里。
  * <p>
- * <b>门面里那 35 个方法名是 mixin 能摸到的全部接口，不得改名。</b>
+ * <b>门面里那 30 个方法名是 mixin 能摸到的全部接口，不得改名。</b>
  * mixin 由游戏实例化，只能访问静态成员；改名不会有任何编译错误，只会在运行时静默失效。
  * <p>
  * {@link #install} 由 {@code CompositionRoot} 调用，而**不是**由
@@ -56,15 +56,6 @@ public final class NativePackRuntime {
    /** 安装唯一实例。必须在客户端初始化之前、{@code ShaderRuntime.init()} 之前调用。 */
    public static void install(ShaderHost host) {
       current = new InstalledPackRuntime(host);
-   }
-
-   /**
-    * 卸载当前实例，回到"尚未安装"的状态。
-    * <p>
-    * 包级可见，供测试使用：ADR-0003 用同一手法让"未安装时门面给出安全答案"这条契约可验证。
-    */
-   static void uninstall() {
-      current = NotInstalledPackRuntime.INSTANCE;
    }
 
    // ---------------------------------------------------------------- 渲染器生命周期
@@ -174,11 +165,6 @@ public final class NativePackRuntime {
 
    // ---------------------------------------------------------------- 查询
 
-   /** 是否真的在渲染原生几何；渲染器的查询都先过这一问。 */
-   public static boolean shadowFrameReady() {
-      return current.shadowFrameReady();
-   }
-
    /**
     * 现在该不该投射阴影：这个包开了阴影，而且这一帧的场景就绪。
     * <p>
@@ -196,16 +182,8 @@ public final class NativePackRuntime {
       return current.usesNativeTransparency();
    }
 
-   public static boolean render(ShaderConfig config, CameraRenderState camera, Matrix4fc view) {
-      return current.render(config, camera, view);
-   }
-
    public static boolean replacesEnvironment(boolean clouds) {
       return current.replacesEnvironment(clouds);
-   }
-
-   public static int shadowQuality() {
-      return current.shadowQuality();
    }
 
    public static int shadowDistance() {
@@ -218,17 +196,5 @@ public final class NativePackRuntime {
 
    public static MaterialTable materials() {
       return current.materials();
-   }
-
-   public static long terrainCaptures() {
-      return current.terrainCaptures();
-   }
-
-   public static long renderedFrames() {
-      return current.renderedFrames();
-   }
-
-   public static long sceneReplacementCount() {
-      return current.sceneReplacementCount();
    }
 }

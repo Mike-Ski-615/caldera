@@ -149,10 +149,6 @@ final class ScenePrograms implements AutoCloseable {
        return false;
    }
 
-   long replacementCount() {
-      return Stream.concat(this.cache.values().stream(), this.targetCache.values().stream()).filter(ScenePrograms::isReplacement).distinct().count();
-   }
-
    static Map<String, String> textures(RenderPipeline pipeline) {
       Map var10000;
       if (pipeline instanceof ScenePipeline scene) {
