@@ -6,6 +6,7 @@ import java.util.List;
 import net.minecraft.client.renderer.state.level.LevelRenderState;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -222,24 +223,28 @@ class DirectionalShadowPassProtocolTest {
    }
 
    /**
-    * {@code prepare()} 在 {@code try} 之外——这是 0.5.1 原件的写法，本次是行为保持的搬运。
+    * {@code prepare()} 的失败与后面任何一步同等对待：**被报告、并且走收尾**。
     * <p>
-    * 后果就是这里的形状：准备阶段抛出的异常**不报告、不重抛前也不收尾**，直接从 frame pass 里
-    * 冒出去，{@code endFrame()} 因此不会跑。这条测试存在的意义不是"这样对"，
-    * 而是让"哪天有人顺手把 prepare 挪进 try"变成一个会失败的改动，从而必须是一次有意识的选择。
+    * 这条**原先是反过来的**：那时 {@code prepare()} 在 {@code try} 之外（0.5.1 原件的写法），
+    * 于是准备阶段的异常不报告、不重抛、{@code endFrame()} 也不跑——脏的 dispatcher 状态
+    * 连同"渲染帧崩掉"一起留给用户。测试当时存在的意义是"让把它挪进 try 变成一次有意识的选择"，
+    * 现在那个选择已经做了，所以它钉的是新语义。
+    * <p>
+    * 后果上的一点不对称值得记下：prepare 失败时后面的步骤（循环、刷 uniform、上传 shadow data）
+    * 都不会跑——这是自然的，因为设备侧还没准备好；而收尾必须跑。
     */
    @Test
-   void aFailureWhilePreparingEscapesWithoutBeingReportedOrEndingTheFrame() {
+   void aFailureWhilePreparingIsReportedAndStillEndsTheFrame() {
       Recorder rec = new Recorder();
       RuntimeException boom = new RuntimeException("prepare failed");
       rec.prepareFailure = boom;
 
-      RuntimeException thrown = assertThrows(RuntimeException.class, rec::run);
+      assertDoesNotThrow(rec::run);
 
-      assertSame(boom, thrown);
-      assertTrue(rec.reported == null, "prepare 的失败不该被报告");
-      assertFalse(rec.calls.contains("endFrame"), "prepare 的失败不该走收尾");
-      assertFalse(rec.calls.contains("flush"));
+      assertSame(boom, rec.reported, "准备失败必须走失败通道");
+      assertTrue(rec.calls.contains("endFrame"), "准备失败也必须收尾");
+      assertFalse(rec.calls.contains("flush"), "设备侧没准备好，后面几步不该跑");
+      assertFalse(rec.calls.contains("shadowData"));
    }
 
    // ---------------------------------------------------------------- 记录器

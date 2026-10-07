@@ -38,10 +38,10 @@ import net.minecraft.client.renderer.state.level.LevelRenderState;
  * {@code NativePackRuntime.heldShadows()}、{@code NativePackRuntime.failScene()} 全部改由适配器
  * 提供，否则那几条分支在测试里根本到不了。
  * <p>
- * <b>搬过来时一字未改的一条疑点：</b>{@code prepare()} 在 {@code try} **之外**。也就是说
- * 阴影准备阶段抛出的 {@code RuntimeException} 不会被记录，也不会走 {@code endFrame()}，
- * 而是直接从 frame pass 里冒出去。这是 0.5.1 原件的写法，本次是行为保持的搬运，**故意不修**——
- * 修它要决定"准备失败该怎么报"，属于另一个改动。测试里有一条把它钉住了。
+ * <b>曾经的一条疑点已经修掉：{@code prepare()} 原在 {@code try} 之外</b>（0.5.1 原件的写法）。
+ * 那时准备阶段抛出的 {@code RuntimeException} 不报告、也不走 {@code endFrame()}，而是直接从
+ * frame pass 里冒出去——留下脏的 dispatcher 状态，而且渲染帧会崩。现在它与其他任何一步同等对待，
+ * 见 {@link #execute}。
  */
 public final class DirectionalShadowPass {
 
@@ -54,18 +54,20 @@ public final class DirectionalShadowPass {
     * {@code facts} 是"要不要做"那三条（见 {@link ShadowPassFacts} 里为什么它们值得命名），
     * {@code context} 是"要做的时候怎么做"。分开之后这个方法的两个入参各自只有一个意思。
     * <p>
-    * 除了 {@link Device#prepare} 那一段（见类注释里的疑点），抛出的 {@code RuntimeException}
-    * 一律交给 {@link Context#reportFailure}，不再向外冒。
+    * 抛出的 {@code RuntimeException} 一律交给 {@link Context#reportFailure}，不再向外冒——
+    * <b>包括 {@link Device#prepare} 那一段</b>（它原先在 {@code try} 之外，是 0.5.1 原件的写法）。
+    * 这样的后果是一致而不是更差：准备失败与其他任何失败一样走同一条通道，
+    * 于是 {@code endFrame()} 照跑（不再留下脏的 dispatcher 状态），而决定权在适配器那里——
+    * 生产侧把它接到 {@code SceneFrame.fail()}，用户看到的是"光影包暂停"而不是渲染帧崩掉。
     */
    public static void execute(Device shadows, ShadowPassFacts facts, Context context) {
       LevelRenderState levelState = context.levelState();
-
-      // 这一行在 try 之外是**原件的行为**，见类注释里记的那条疑点。
-      shadows.prepare(levelState, context.packDistance());
-
       CommandEncoder encoder = context.encoder();
 
       try {
+         // prepare 也在这段里：失败与后面任何一步同等对待。
+         shadows.prepare(levelState, context.packDistance());
+
          for(int cascade = 0; cascade < shadows.activeCascadeCount(); ++cascade) {
             boolean terrainUpdate = shadows.shouldUpdateCascade(cascade);
             boolean entityUpdate = shadows.shouldUpdateEntityCascade(cascade);
