@@ -9,6 +9,7 @@ import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.pipeline.UniformType;
 import com.caldera.shaders.graph.GraphShaderSources;
 import com.caldera.shaders.mixin.RenderPipelinesAccessor;
+import com.caldera.shaders.runtime.ReloadableResources;
 import com.caldera.shaders.runtime.ShaderResourceIds;
 import java.util.Optional;
 import net.minecraft.client.renderer.BindGroupLayouts;
@@ -26,6 +27,12 @@ public final class DirectionalShadowPipelines {
     * 加一条新管线就要记得回来补一次。
     */
    private static final GraphShaderSources.Owner OWNER = GraphShaderSources.owner("directional shadow pipelines");
+   /**
+    * 这三条管线跨资源重载存活，所以"重载时要把它们放掉"这条动作在这里登记一次，
+    * 而不是靠适配器那边的清单记得调一次。见 {@link ReloadableResources}。
+    */
+   private static final ReloadableResources.Owner RELOADABLE =
+         ReloadableResources.owner("directional shadow pipelines", DirectionalShadowPipelines::close);
 
    private DirectionalShadowPipelines() {
    }

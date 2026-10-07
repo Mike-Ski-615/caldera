@@ -9,6 +9,7 @@ import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.renderpearl.api.commands.CommandEncoder;
 import com.caldera.shaders.config.ShaderQualityPreset;
 import com.caldera.shaders.graph.NativePackRuntime;
+import com.caldera.shaders.runtime.ReloadableResources;
 import com.caldera.shaders.runtime.ShaderHost;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -51,6 +52,12 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
    private static ShaderHost host;
    private static RenderTarget localTarget;
    private static GpuBufferSlice localUniforms;
+   /**
+    * 这几个 RenderTarget 跨资源重载存活（{@link #close()} 只拆纹理，不动计划状态），
+    * 所以释放动作在这里登记一次。见 {@link ReloadableResources}。
+    */
+   private static final ReloadableResources.Owner RELOADABLE =
+         ReloadableResources.owner("directional shadow renderer", DirectionalShadowRenderer::close);
    private final RenderTarget[] targets = new RenderTarget[4];
    private final RenderTarget[] entityTargets = new RenderTarget[4];
    private final int[] targetSizes = new int[4];

@@ -10,6 +10,7 @@ import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.pipeline.UniformType;
 import com.mojang.renderpearl.api.vertex.VertexFormat;
 import com.caldera.shaders.graph.GraphShaderSources;
+import com.caldera.shaders.runtime.ReloadableResources;
 import com.caldera.shaders.runtime.ShaderResourceIds;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
@@ -22,6 +23,9 @@ public final class SodiumTerrainShadowPipelines {
    private static final Map<VertexFormat, Map<Integer, RenderPipeline>> CASTERS = new IdentityHashMap();
    /** 这张缓存里所有管线的编译产物归谁；源码来自核心着色器，所以用 claim 而不是 put。 */
    private static final GraphShaderSources.Owner OWNER = GraphShaderSources.owner("sodium terrain shadow pipelines");
+   /** 这张缓存跨资源重载存活，释放动作在定义处登记一次。见 {@link ReloadableResources}。 */
+   private static final ReloadableResources.Owner RELOADABLE =
+         ReloadableResources.owner("sodium terrain shadow pipelines", SodiumTerrainShadowPipelines::close);
 
    private SodiumTerrainShadowPipelines() {
    }

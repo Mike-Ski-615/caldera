@@ -6,10 +6,6 @@ import com.caldera.shaders.graph.GraphRenderer;
 import com.caldera.shaders.graph.NativePackRuntime;
 import com.caldera.shaders.pack.LegacyPackMigration;
 import com.caldera.shaders.pack.ShaderPackScanner;
-import com.caldera.shaders.render.shadow.DirectionalShadowPipelines;
-import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
-import com.caldera.shaders.render.shadow.SodiumShadowTerrainRenderer;
-import com.caldera.shaders.render.shadow.SodiumTerrainShadowPipelines;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.renderpearl.api.GpuFormat;
@@ -123,10 +119,9 @@ public final class MinecraftShaderHost implements ShaderHost {
 
 	@Override
 	public void closeReloadableResources() {
-		DirectionalShadowPipelines.close();
-		DirectionalShadowRenderer.close();
-		SodiumShadowTerrainRenderer.close();
-		SodiumTerrainShadowPipelines.close();
+		// "哪些模块持有可重载资源"不再是一张长在这里的清单：每个模块在自己的定义处登记，
+		// 释放策略（顺序、失败、可反复调用）收在 ReloadableResources 里。
+		ReloadableResources.closeAll();
 	}
 
 	@Override

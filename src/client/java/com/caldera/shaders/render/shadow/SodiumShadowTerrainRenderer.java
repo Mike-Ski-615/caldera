@@ -8,6 +8,7 @@ import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.renderpearl.api.textures.GpuSampler;
 import com.caldera.shaders.mixin.sodium.RenderSectionManagerAccessor;
 import com.caldera.shaders.mixin.sodium.SodiumWorldRendererAccessor;
+import com.caldera.shaders.runtime.ReloadableResources;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.IdentityHashMap;
@@ -45,6 +46,9 @@ public final class SodiumShadowTerrainRenderer {
    private static final CascadePlan[] CACHED_PLANS = new CascadePlan[4];
    private static TerrainRenderPass[] preparingPasses;
    private static TerrainRenderPass[] drawingPasses;
+   /** 缓存的 render-list plan 跨资源重载存活，释放动作在定义处登记一次。见 {@link ReloadableResources}。 */
+   private static final ReloadableResources.Owner RELOADABLE =
+         ReloadableResources.owner("sodium shadow terrain plans", SodiumShadowTerrainRenderer::close);
 
    public static TerrainRenderPass[] preparingPasses() {
       return preparingPasses;
