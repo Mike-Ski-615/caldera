@@ -3,5 +3,6 @@ build/
 run/
 */build/
 *.log
+logs/
 .idea
 docs
