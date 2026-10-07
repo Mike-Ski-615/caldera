@@ -33,7 +33,7 @@ import org.joml.Vector4f;
  * <p>
  * {@code beginCascade}/{@code endCascade} 那套重入协议**不在**本次改动范围内，原样保留。
  */
-public final class DirectionalShadowRenderer {
+public final class DirectionalShadowRenderer implements DirectionalShadowPass.Device {
    private static final int CASCADE_UBO_BYTES = 144;
    private static final int SHADOW_DATA_BYTES = 416;
    private static final Vector4f CLEAR = new Vector4f(1.0F, 1.0F, 1.0F, 1.0F);
@@ -75,7 +75,16 @@ public final class DirectionalShadowRenderer {
    private double cameraY;
    private double cameraZ;
 
-   public static void beginLocal(RenderTarget target, GpuBufferSlice uniforms) {
+   /**
+    * 进入"手持光源"那一关：它与级联关卡共用同一个作用域标记。
+    * <p>
+    * 这几个作用域操作原先都是静态的。改成实例方法是为了让
+    * {@link DirectionalShadowPass.Device} 能表达它们——接口里的方法只能是实例方法，而
+    * {@code beginLocal()} 与 {@code endCascade()} 是配对的，所以一起改，不留一半静态一半实例。
+    * 它们动的那两个 {@code ThreadLocal} 仍然是静态的（进程级）；实例这边只是"当前那个阴影渲染器"
+    * 的入口，而 {@code get()} 是单例，所以两种写法在语义上没有区别。
+    */
+   public void beginLocal(RenderTarget target, GpuBufferSlice uniforms) {
       ACTIVE_CASCADE.set(0);
       localTarget = target;
       localUniforms = uniforms;
@@ -117,17 +126,20 @@ public final class DirectionalShadowRenderer {
       return (Integer)ACTIVE_CASCADE.get();
    }
 
-   public static void beginCascade(int cascade) {
+   @Override
+   public void beginCascade(int cascade) {
       ACTIVE_CASCADE.set(cascade);
       ACTIVE_ENTITY_PASS.set(false);
    }
 
-   public static void beginEntityCascade(int cascade) {
+   @Override
+   public void beginEntityCascade(int cascade) {
       ACTIVE_CASCADE.set(cascade);
       ACTIVE_ENTITY_PASS.set(true);
    }
 
-   public static void endCascade() {
+   @Override
+   public void endCascade() {
       ACTIVE_CASCADE.set(-1);
       localTarget = null;
       localUniforms = null;
@@ -141,6 +153,7 @@ public final class DirectionalShadowRenderer {
     * {@code ensureResources} 必须先用它做分配并把"资源变过没有"作为计划的一个输入，
     * 计划才允许跑。反过来会让级联布局在资源重建的那一帧与纹理实际尺寸对不上。
     */
+   @Override
    public void prepare(LevelRenderState levelRenderState) {
       ShaderQualityPreset quality = ShadowService.quality();
       if (quality.enabled() && levelRenderState != null && levelRenderState.cameraRenderState != null) {
@@ -181,6 +194,7 @@ public final class DirectionalShadowRenderer {
       }
    }
 
+   @Override
    public int activeCascadeCount() {
       return this.schedule.activeCascadeCount();
    }
@@ -203,10 +217,12 @@ public final class DirectionalShadowRenderer {
       return this.schedule.cascadeMatrix(cascade);
    }
 
+   @Override
    public boolean shouldUpdateCascade(int cascade) {
       return this.schedule.cascadeUpdate(cascade);
    }
 
+   @Override
    public boolean shouldUpdateEntityCascade(int cascade) {
       return this.schedule.entityCascadeUpdate(cascade);
    }
@@ -255,6 +271,7 @@ public final class DirectionalShadowRenderer {
       return this.schedule.sectionIntersectsCascade(cascade, originX, originY, originZ, this.cameraX, this.cameraY, this.cameraZ);
    }
 
+   @Override
    public void uploadCascade(CommandEncoder encoder, int cascade) {
       this.cascadeUpload.clear();
       this.schedule.cascadeMatrix(cascade).get(this.cascadeUpload);
@@ -271,6 +288,7 @@ public final class DirectionalShadowRenderer {
       return localUniforms != null ? localUniforms : this.cascadeSlice;
    }
 
+   @Override
    public void uploadShadowData(CommandEncoder encoder) {
       this.shadowUpload.clear();
       int activeCascadeCount = this.schedule.activeCascadeCount();
@@ -329,6 +347,7 @@ public final class DirectionalShadowRenderer {
       }
    }
 
+   @Override
    public void clearCascade(CommandEncoder encoder, int cascade) {
       RenderTarget target = this.target(cascade);
       if (target != null && target.getColorTexture() != null && target.getDepthTexture() != null) {
@@ -337,6 +356,7 @@ public final class DirectionalShadowRenderer {
 
    }
 
+   @Override
    public void clearEntityCascade(CommandEncoder encoder, int cascade) {
       RenderTarget target = this.entityTarget(cascade);
       if (target != null && target.getColorTexture() != null && target.getDepthTexture() != null) {

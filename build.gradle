@@ -30,6 +30,10 @@ base {
 //   scenePipelines=0），抓不到细微的着色漂移——那需要每个构建 ≥3 次采样。
 //   之所以不能像素级对齐：wind 相位取自 System.nanoTime()，云与水面按世界时间走，
 //   而截图发生在"第 120 帧"而不是"第 120 tick"，所以每跑一次的动画相位都不同。
+//   另有一种必须**判废**而不是解读的跑法：runClient 的窗口一旦失焦，单人世界会自动暂停，
+//   截图拍到的就是暂停菜单（体积会掉到正常图的三分之一左右）。所以 run/options.txt 里
+//   pauseOnLostFocus 必须是 false（run/ 不入库，属本地门禁输入），并且每次跑完要看一眼图，
+//   拍成菜单的那次直接丢掉、不算一次采样——它既不是 PASS 也不是 FAIL。
 def calderaSmokeProperties = [
 	"caldera.worldSmoke",
 	"caldera.worldSmokeReload",

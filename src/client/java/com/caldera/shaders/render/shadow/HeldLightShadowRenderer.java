@@ -94,6 +94,9 @@ public final class HeldLightShadowRenderer implements AutoCloseable {
 
    public void render(SodiumWorldRenderer sodium, CameraRenderState camera, GpuSampler sampler, Runnable entities) {
       if (this.active()) {
+         // 作用域标记住在 DirectionalShadowRenderer 上，而 beginLocal/endCascade 现在是实例方法。
+         // 这里是单例，且阴影关卡已经先跑过 get()，所以这一行不会新建实例。
+         DirectionalShadowRenderer shadows = DirectionalShadowRenderer.get();
          List<ChunkRenderList> lists = this.terrainLists(sodium);
          CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
          SodiumWorldRendererAccessor access = sodium == null ? null : (SodiumWorldRendererAccessor)sodium;
@@ -115,7 +118,7 @@ public final class HeldLightShadowRenderer implements AutoCloseable {
                GpuBufferSlice uniforms = encoder.transientMemory().uploadGpu(this.casterBytes, (long)RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment(), 128);
                RenderTarget target = this.targets[face];
                encoder.clearColorAndDepthTextures(target.getColorTexture(), new Vector4f(1.0F), target.getDepthTexture(), (double)1.0F);
-               DirectionalShadowRenderer.beginLocal(target, uniforms);
+               shadows.beginLocal(target, uniforms);
 
                try {
                   if (access != null && access.caldera$renderSectionManager() != null && !lists.isEmpty()) {
@@ -133,7 +136,7 @@ public final class HeldLightShadowRenderer implements AutoCloseable {
 
                   entities.run();
                } finally {
-                  DirectionalShadowRenderer.endCascade();
+                  shadows.endCascade();
                }
             }
          } finally {

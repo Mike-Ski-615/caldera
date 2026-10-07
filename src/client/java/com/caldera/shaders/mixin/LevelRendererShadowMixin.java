@@ -13,6 +13,7 @@ import com.mojang.renderpearl.api.textures.FilterMode;
 import com.mojang.renderpearl.api.textures.GpuSampler;
 import com.caldera.shaders.graph.NativePackRuntime;
 import com.caldera.shaders.mixin.sodium.SodiumWorldRendererAccessor;
+import com.caldera.shaders.render.shadow.DirectionalShadowPass;
 import com.caldera.shaders.render.shadow.DirectionalShadowPipelines;
 import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.render.shadow.DirectionalShadowSubmitFilter;
@@ -138,76 +139,94 @@ public abstract class LevelRendererShadowMixin {
       if (!ShaderRuntime.resourceReloading() && (ShadowService.enabled() || NativePackRuntime.heldShadows() != null) && chunkSectionsToRender != null) {
          FramePass pass = builder.addPass("caldera:directional_shadow_maps");
          pass.disableCulling();
-         pass.executes(() -> {
-            DirectionalShadowRenderer shadows = DirectionalShadowRenderer.get();
-            shadows.prepare(this.levelRenderState);
-            SodiumWorldRenderer sodiumRenderer = SodiumWorldRenderer.instanceNullable();
-            GpuSampler sampler = this.chunkLayerSampler != null ? this.chunkLayerSampler : RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
-            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+         pass.executes(() -> this.caldera$runDirectionalShadowPass());
+      }
+   }
 
-            try {
-               for(int cascade = 0; cascade < shadows.activeCascadeCount(); ++cascade) {
-                  boolean terrainUpdate = shadows.shouldUpdateCascade(cascade);
-                  boolean entityUpdate = shadows.shouldUpdateEntityCascade(cascade);
-                  if (terrainUpdate || entityUpdate) {
-                     shadows.uploadCascade(encoder, cascade);
-                     if (terrainUpdate) {
-                        shadows.clearCascade(encoder, cascade);
-                        DirectionalShadowRenderer.beginCascade(cascade);
-
-                        try {
-                           if (sodiumRenderer != null && this.levelRenderState.cameraRenderState != null) {
-                              this.caldera$renderSodiumTerrainShadow(sodiumRenderer, shadows, cascade, sampler);
-                           }
-                        } finally {
-                           DirectionalShadowRenderer.endCascade();
-                        }
-                     }
-
-                     if (entityUpdate) {
-                        shadows.clearEntityCascade(encoder, cascade);
-                        DirectionalShadowRenderer.beginEntityCascade(cascade);
-
-                        try {
-                           if (this.caldera$hasNearShadowEntitySubmits) {
-                              this.caldera$prepareAndRenderShadowEntities(this.caldera$nearShadowSubmitStorage);
-                           }
-                        } finally {
-                           DirectionalShadowRenderer.endCascade();
-                        }
-                     }
-                  }
+   /**
+    * 阴影关卡的游戏侧接线：这里只**取东西**（Sodium、采样器、命令编码器）与**接线**
+    * （五个回调），顺序全在 {@link DirectionalShadowPass#execute} 里。
+    * <p>
+    * 五个回调之所以写成 lambda 而不是一个匿名类，是因为它们要摸这个 mixin 的
+    * {@code @Shadow}／{@code @Unique} 成员：lambda 体会编译成本类自己的合成方法，对成员的
+    * 引用就落在本类里，Mixin 的引用重写必然覆盖得到；换成内部类则要走 Mixin 的另一套处理，
+    * 而这个项目里没有先例，出错的时机是运行时而非编译期。
+    * <p>
+    * 注意回调里那些"有没有 Sodium""有没有相机"的判断：它们是**适配器自己的守卫**，与原件里
+    * 它们所在的位置一一对应（地形那一关要 Sodium 且相机就位，收尾刷 uniform 那一关只要 Sodium）。
+    * 模块不该知道这些。
+    * <p>
+    * <b>与原件的一处顺序差异，记录在这里：</b>原件在 {@code prepare()} **之后**才取
+    * {@code SodiumWorldRenderer}、采样器与命令编码器，而现在这三样要在装 {@code Frame} 时就取到，
+    * 于是它们在 {@code prepare()} 之前。这三样都是纯粹的"取一个句柄"（两个 getter 与一次采样器
+    * 缓存查询），谁都不依赖阴影资源是否已经分配；而 {@code prepare()} 本身不用编码器——真正用到
+    * 它的是后面 {@code uploadCascade}。所以这个差异在成功路径上不可观测；唯一可观测的是
+    * {@code createCommandEncoder()} 自己抛异常时，此时资源还没分配——那已经是一个坏掉的状态。
+    */
+   @Unique
+   private void caldera$runDirectionalShadowPass() {
+      DirectionalShadowRenderer shadows = DirectionalShadowRenderer.get();
+      SodiumWorldRenderer sodiumRenderer = SodiumWorldRenderer.instanceNullable();
+      GpuSampler sampler = this.chunkLayerSampler != null ? this.chunkLayerSampler : RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
+      CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+      DirectionalShadowPass.execute(shadows, new DirectionalShadowPass.Frame(
+            // 值
+            this.levelRenderState,
+            encoder,
+            this.caldera$hasNearShadowEntitySubmits,
+            ShadowService.enabled(),
+            this.caldera$activeHeldLight() != null,
+            // 动作
+            cascade -> {
+               if (sodiumRenderer != null && this.levelRenderState.cameraRenderState != null) {
+                  this.caldera$renderSodiumTerrainShadow(sodiumRenderer, shadows, cascade, sampler);
                }
-
+            },
+            () -> {
                if (sodiumRenderer != null) {
                   ((SodiumWorldRendererAccessor)sodiumRenderer).caldera$uniformBufferManager().prepareFrame();
                }
-
-               if (ShadowService.enabled()) {
-                  shadows.uploadShadowData(encoder);
-               }
-
-               HeldLightShadowRenderer local = NativePackRuntime.heldShadows();
-               if (local != null && local.active()) {
-                  FeatureRenderDispatcher.PreparedFrame frame = this.caldera$shadowFeatureDispatcher().prepareFrame(this.caldera$localShadowStorage);
-
-                  try {
-                     local.render(sodiumRenderer, this.levelRenderState.cameraRenderState, sampler, () -> this.caldera$renderShadowEntityFrame(frame));
-                  } finally {
-                     frame.close();
-                  }
-               }
-            } catch (RuntimeException failure) {
-               NativePackRuntime.failScene(failure);
-            } finally {
+            },
+            () -> this.caldera$prepareAndRenderShadowEntities(this.caldera$nearShadowSubmitStorage),
+            () -> this.caldera$renderHeldLightFrame(sodiumRenderer, sampler),
+            NativePackRuntime::failScene,
+            () -> {
                if (this.caldera$shadowRenderBuffers != null) {
                   this.caldera$shadowRenderBuffers.endFrame();
                }
+            }));
+   }
 
-            }
+   /**
+    * 这一帧存活的手持光源阴影渲染器，没有就是 {@code null}。
+    * <p>
+    * 这个条件在同一关里被问两次（模块问"要不要画"，画的时候再取一次），所以收成一处——
+    * {@code heldShadows()} 是个普通 getter，两次读之间什么都没跑，因此与原件里读一次等价。
+    */
+   @Unique
+   private HeldLightShadowRenderer caldera$activeHeldLight() {
+      HeldLightShadowRenderer local = NativePackRuntime.heldShadows();
+      return local != null && local.active() ? local : null;
+   }
 
-         });
+   /**
+    * 手持光源那一关的实体渲染。"有没有启用"由模块判过，这里再取一次实例。
+    */
+   @Unique
+   private void caldera$renderHeldLightFrame(SodiumWorldRenderer sodiumRenderer, GpuSampler sampler) {
+      HeldLightShadowRenderer heldLight = this.caldera$activeHeldLight();
+      if (heldLight == null) {
+         return;
       }
+
+      FeatureRenderDispatcher.PreparedFrame frame = this.caldera$shadowFeatureDispatcher().prepareFrame(this.caldera$localShadowStorage);
+
+      try {
+         heldLight.render(sodiumRenderer, this.levelRenderState.cameraRenderState, sampler, () -> this.caldera$renderShadowEntityFrame(frame));
+      } finally {
+         frame.close();
+      }
+
    }
 
    @Unique
