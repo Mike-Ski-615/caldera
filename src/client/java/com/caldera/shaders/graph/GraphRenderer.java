@@ -295,25 +295,9 @@ public final class GraphRenderer implements AutoCloseable {
                      fresh.put(name, pair);
                      physical.put(slot, pair);
 
-                     for(int i = 0; i < pair.length; ++i) {
-                        try (StorageImageScope scope = new StorageImageScope(storageSlots.contains(slot), r.depth())) {
-                           GpuTexture texture = ((GraphDeviceAccessor)device).caldera$backend().createTexture("Caldera " + name, (r.depth() == 1 ? 8 : 0) | 4 | (!r.history() && !this.graph.sceneTargets().contains(name) && !r.mipmaps() ? 0 : 1) | (r.mipmaps() ? 2 : 0), r.format(), w, h, r.depth(), r.mipLevels(width, height));
-
-                           try {
-                              GpuTextureView sampled = device.createTextureView(texture);
-
-                              try {
-                                 pair[i] = new Image(texture, sampled, r.mipmaps() ? device.createTextureView(texture, 0, 1) : sampled);
-                              } catch (Exception failure) {
-                                 sampled.close();
-                                 throw failure;
-                              }
-                           } catch (Exception failure) {
-                              texture.close();
-                              throw failure;
-                           }
-                        }
-                     }
+                      for(int i = 0; i < pair.length; ++i) {
+                         pair[i] = createStorageImage(device, "Caldera " + name, (r.depth() == 1 ? 8 : 0) | 4 | (!r.history() && !this.graph.sceneTargets().contains(name) && !r.mipmaps() ? 0 : 1) | (r.mipmaps() ? 2 : 0), r.format(), w, h, r.depth(), r.mipLevels(width, height), storageSlots.contains(slot), r.depth(), r.mipmaps());
+                      }
                   } else {
                      fresh.put(name, (Image[])physical.get(slot));
                   }
@@ -697,6 +681,37 @@ public final class GraphRenderer implements AutoCloseable {
          }
 
          ScenePrograms.textures(pipeline).forEach((binding, asset) -> pass.setUniform(binding, GraphSceneCapture.isInput(asset) ? this.sceneCapture.view(asset) : ((Image)this.customTextures.get(asset)).view, GraphSceneCapture.isInput(asset) ? this.sampler : (GpuSampler)this.textureSamplers.get(asset)));
+      }
+   }
+
+   /**
+    * 建一张存储图：纹理、采样视图，以及需要时的 mip 视图。
+    * <p>
+    * <b>这里就是 {@link StorageImageScope} 的所属关系。</b>那个作用域原先以一段裸的
+    * try-with-resources 长在 {@code allocate()} 的循环体里，它的全部含义是"必须恰好罩住这条纹理
+    * **与它的视图**的创建"——因为 {@code GraphStorageTextureMixin} 与 {@code GraphStorageViewMixin}
+    * 在 Vulkan 那边构造纹理与视图时会把它读回来（6 个站点，一字未改）。那份契约原先只存在于
+    * 代码形状里：范围一旦被挪到别处，读回来的就是默认值，而表现是纹理的 usage／类型静默不对。
+    * <p>
+    * 写成方法之后，作用域与它所描述的那两次创建在同一个括号里：要挪也挪不开。
+    */
+   private static Image createStorageImage(GpuDevice device, String name, int usage, GpuFormat format, int width, int height, int depth, int mipLevels, boolean storage, int scopeDepth, boolean mipView) {
+      try (StorageImageScope scope = new StorageImageScope(storage, scopeDepth)) {
+         GpuTexture texture = ((GraphDeviceAccessor)device).caldera$backend().createTexture(name, usage, format, width, height, depth, mipLevels);
+
+         try {
+            GpuTextureView sampled = device.createTextureView(texture);
+
+            try {
+               return new Image(texture, sampled, mipView ? device.createTextureView(texture, 0, 1) : sampled);
+            } catch (Exception failure) {
+               sampled.close();
+               throw failure;
+            }
+         } catch (Exception failure) {
+            texture.close();
+            throw failure;
+         }
       }
    }
 
