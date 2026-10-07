@@ -34,6 +34,7 @@ class CelestialDirectionAccessTest {
    @AfterEach
    void leaveNoInstanceBehind() {
       DirectionalShadowRenderer.close();
+      DirectionalShadowRenderer.uninstall();
    }
 
    /** 与生产同一条公式算出来的期望值——不在这里重写三角学，直接问那个纯函数。 */

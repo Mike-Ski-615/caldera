@@ -571,17 +571,36 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
     * 拆的只是资源。实测确认这不需要靠重建实例来重置：{@link CascadePlanner#suspend()} 会在未启用时
     * 把生效级联数归零，而重新分配资源会让 {@code ensureResources} 报"资源变过"，计划因此重算。
     * <p>
-    * <b>另一处也刻意不动的不一致：</b>这里 {@code destroyBuffers()} 是**同步**调用的，而
-    * {@code ensureResources}/{@code retireUnused} 走 {@code RenderSystem.queueFencedTask} 排到栅栏之后。
-    * 这个分歧是迁移前就存在的，没有被本次提取引入，也**故意不在本次修复**：`close()` 的调用方是
-    * {@code MinecraftShaderHost.closeReloadableResources()}，而 {@code ShaderRuntime} 在
-    * {@code reloadResources()} **之前一步**就调它——也就是说当前帧的 GPU 命令可能仍在使用这些纹理，
-    * 同步销毁疑似 use-after-free。修它要动的是拆资源的时序，属于另一个改动，不在本次范围。
+    * <b>拆除本身排到栅栏之后</b>（{@code RenderSystem.queueFencedTask}），与
+    * {@link #ensureResources} 经由 {@code retireTargets} 的做法、以及 {@link #retireUnused} 一致。
+    * 这条曾经是**同步**的，而那是同一模块里两种做法并存：
+    * <ul>
+    *   <li>调用场景：{@code MinecraftShaderHost.closeReloadableResources()} 的调用方是
+    *       {@code InstalledShaderLifecycle} 的 {@code commit()} 与 {@code shutdown()}，
+    *       而前者在 {@code reloadResources()} 之前**紧挨着**调它——也就是说上一帧的 GPU 命令
+    *       可能仍在使用这些纹理，同步销毁疑似 use-after-free；</li>
+    *   <li>同一个代码库里另一条销毁路径（{@code GraphRenderer} 重建自己的资源时）用的是
+    *       {@code RenderSystem.queueFencedTask}，{@code SceneFrame.detach} 的排队处置也明写
+    *       "当前帧可能还在用它的资源"。</li>
+    * </ul>
+    * 排到栅栏之后是这两条的统一，代价是销毁晚一两帧（由 {@code Minecraft} 每帧的
+    * {@code executePendingTasks()} 推进）。{@code destroyTargets} 会把四个槽位置空，
+    * 所以重复排队是安全的——{@link ReloadableResources} 的契约本来就允许反复调用。
+    * <p>
+    * <b>没有设备时退回同步拆除。</b>那个栅栏要求设备已经初始化，而 {@code close()} 是一个**收尾**
+    * 动作——它不该在"设备还没建起来"的路径上抛（纯 JVM 测试就是一例；{@code ReloadableResources}
+    * 会把它当成一次释放失败一并向调用方报）。真机里那一步永远走不到。
     */
    public static void close() {
       DirectionalShadowRenderer live = instance;
       if (live != null) {
-         live.destroyTargets();
+         // 没有设备时（纯 JVM、或初始化之前）退回同步拆除。真机里设备一定在，
+         // 而测试与任何"还没建起设备"的路径不该因为一个收尾动作而抛。
+         try {
+            RenderSystem.queueFencedTask(live::destroyTargets);
+         } catch (IllegalStateException noDevice) {
+            live.destroyTargets();
+         }
       }
    }
 }

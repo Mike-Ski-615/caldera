@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -147,22 +148,22 @@ class ReloadableResourcesTest {
 	/**
 	 * {@code closeAll()} 真的跑到阴影渲染器那个持有者的释放动作，而且**不换掉实例**。
 	 * <p>
-	 * 这条原先靠"拆过之后再取会拿到新实例"（{@code assertNotSame}）来证明释放动作跑过了。
-	 * 阶段二把"close 置空实例"去掉了，所以身份断言反过来：**同一个实例**，
-	 * 而"动作确实被跑到"由"登记表里有它"+"调用不抛"共同保证。
+	 * 这条原先靠"拆过之后再取会拿到新实例"（{@code assertNotSame}）来证明释放动作跑过了；
+	 * 阶段二把"close 置空实例"去掉了，所以身份断言反过来：**同一个实例**。
 	 * <p>
 	 * 为什么不能更强：要观测"资源真的被拆了"得先有资源，而分配 RenderTarget 需要真的
-	 * {@code GpuDevice}（纯 JVM 里 {@code RenderSystem.queueFencedTask} 直接抛）。
-	 * 这是本项目已知的验证缺口之一。
+	 * {@code GpuDevice}。这里能证明的是"那次释放动作被跑到了、而且是幂等的"——
+	 * 阴影渲染器排栅栏时因没有设备而退回同步拆除（见 {@code close()} 的注释），
+	 * 所以它在这里也不抛。
 	 */
 	@Test
-	void closeAllReleasesTheShadowRendererWithoutReplacingIt() {
+	void closeAllReachesTheShadowRendererWithoutReplacingIt() {
 		DirectionalShadowRenderer.install(null, () -> false, () -> false);
 		DirectionalShadowRenderer before = DirectionalShadowRenderer.get();
 		assertNotNull(before, "装配之后必须有实例");
 		assertFalse(before.resourcesReady(), "没分配过资源，所以还没就绪");
 
-		ReloadableResources.closeAll();
+		assertDoesNotThrow(ReloadableResources::closeAll);
 
 		assertSame(before, DirectionalShadowRenderer.get(), "closeAll 拆资源，但不换实例");
 		assertFalse(before.resourcesReady(), "拆过之后仍然没有资源");

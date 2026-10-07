@@ -16,12 +16,12 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 拆卸路径的契约：{@code close()} 在没有分配过任何东西时安全、可以重复调用，
- * 它**不**清计划状态——最后这条是刻意保留的不对称——以及它**不再换掉实例**。
+ * 拆卸路径的契约：{@code close()} **不再换掉实例**、**不**清计划状态（那条不对称是刻意保留的），
+ * 以及它现在**把拆除排到栅栏之后**。
  * <p>
- * 这些事实原先只存在于 {@code destroyTargets} 的循环体里，而且其中一条
- * （{@code close()} 同步拆纹理、{@code ensureResources}/{@code retireUnused} 走栅栏）根本读不出来。
- * 这里能钉住的部分就钉住；钉不住的部分在下面写清楚为什么。
+ * 最后这一条在纯 JVM 里观测不到差别：没有设备时它退回同步拆除，所以这里看到的仍是"资源确实被拆了"。
+ * 真机里那一步会晚一两帧（由 {@code Minecraft} 每帧的 {@code executePendingTasks()} 推进），
+ * 而那正是这次修复的目的——见 {@code close()} 的注释。
  * <p>
  * <b>实例只建一次</b>（{@code DirectionalShadowRenderer.get()}），所以每个用例必须自己
  * {@link #installed()}，而收尾要 {@code uninstall()}——否则"装配之前"那个 null 状态会随执行顺序
@@ -98,13 +98,13 @@ class DirectionalShadowRendererTeardownTest {
          DirectionalShadowRenderer.close();
       });
 
-      assertFalse(shadows.resourcesReady(), "资源确实被拆了");
+      assertFalse(shadows.resourcesReady(), "资源确实被拆了（没有设备时退回同步拆除）");
       assertEquals(churn, shadows.planStats().totalLayoutVersionChurn(), "重复 close 不该重置计划");
    }
 
    /**
-    * 什么都没分配过时 {@code close()} 安全——{@code destroyTargets} 只遍历四个槽位并检查 null，
-    * 不碰 {@code RenderSystem}、不碰 GPU。
+    * 什么都没分配过时 {@code close()} 安全——没有设备时它退回同步拆除，而
+    * {@code destroyTargets} 只遍历四个槽位并检查 null，不碰 {@code RenderSystem}、不碰 GPU。
     */
    @Test
    void closeIsSafeWhenNothingWasAllocated() {
@@ -176,7 +176,7 @@ class DirectionalShadowRendererTeardownTest {
 
       DirectionalShadowRenderer.close();
 
-      assertFalse(shadows.resourcesReady(), "资源确实被拆了");
+      assertFalse(shadows.resourcesReady(), "资源确实被拆了（没有设备时退回同步拆除）");
       assertEquals(churn, shadows.planStats().totalLayoutVersionChurn(),
             "计划历史连续——与旧的“close 之后从头开始”相反");
    }
