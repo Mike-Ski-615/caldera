@@ -21,11 +21,11 @@ import org.joml.Matrix4fc;
 import org.joml.Vector3f;
 
 final class GraphFrame {
-   static final String MEMBERS = "mat4 Projection; mat4 View; mat4 InverseProjection; mat4 InverseView;\nmat4 PreviousProjection; mat4 PreviousView;\nvec4 CameraDeltaAndHistoryValid; vec4 TimeDeltaFrame; vec4 ViewSizeAndInverse;\nvec4 WorldTimeWeatherDimension; vec4 SunDirectionAndRainBrightness; vec4 MoonDirectionAndPhase;\nvec4 CameraPositionHighAndFogType; vec4 CameraPositionLowAndFarPlane;\nvec4 FogColorAndStart; vec4 FogDistances; vec4 SkyColorAndStarBrightness;\nvec4 CloudOffsetAndGameTime;\nmat4 InverseHandProjection; vec4 HandProjectionValid;\n      vec4 HeldLightPositionRadius; vec4 HeldLightColor;\n      mat4 HeldLightViewProjection[6];\n";
    private final Matrix4f previousProjection = new Matrix4f();
    private final Matrix4f previousView = new Matrix4f();
-   private final ByteBuffer bytes = ByteBuffer.allocateDirect(1072).order(ByteOrder.nativeOrder());
-   private final float[] environment = new float[36];
+   private final ByteBuffer bytes = ByteBuffer.allocateDirect(FrameLayout.size()).order(ByteOrder.nativeOrder());
+   /** 那 9 个 vec4 的暂存处：取值发生在 {@code environment()}，落进缓冲发生在 {@code upload()}。 */
+   private final float[] environment = new float[FrameLayout.ENVIRONMENT_SLOTS];
    private float partialTick;
    final HeldLight heldLight = new HeldLight();
    boolean heldLighting;
@@ -42,12 +42,25 @@ final class GraphFrame {
    private boolean valid;
    private boolean frameReset;
 
+   /**
+    * 帧 uniform 块的声明，由 {@link FrameLayout} 生成——布局不再有第二处抄写。
+    */
    static String declaration() {
-      return "layout(std140) uniform CalderaFrame {\nmat4 Projection; mat4 View; mat4 InverseProjection; mat4 InverseView;\nmat4 PreviousProjection; mat4 PreviousView;\nvec4 CameraDeltaAndHistoryValid; vec4 TimeDeltaFrame; vec4 ViewSizeAndInverse;\nvec4 WorldTimeWeatherDimension; vec4 SunDirectionAndRainBrightness; vec4 MoonDirectionAndPhase;\nvec4 CameraPositionHighAndFogType; vec4 CameraPositionLowAndFarPlane;\nvec4 FogColorAndStart; vec4 FogDistances; vec4 SkyColorAndStarBrightness;\nvec4 CloudOffsetAndGameTime;\nmat4 InverseHandProjection; vec4 HandProjectionValid;\n      vec4 HeldLightPositionRadius; vec4 HeldLightColor;\n      mat4 HeldLightViewProjection[6];\n};\n";
+      return "layout(std140) uniform CalderaFrame {\n" + FrameLayout.block() + "};\n";
    }
 
    static boolean cameraReady(CameraRenderState camera, Matrix4fc view) {
       return camera != null && matrixReady(camera.projectionMatrix) && (view == null || matrixReady(view));
+   }
+
+   /**
+    * {@code environment[]} 里某个 vec4 的起点槽位。
+    * <p>
+    * 那 36 个 float 就是 GLSL 里连续的 9 个 vec4，所以"哪个 vec4 落在数组的哪一段"由
+    * {@link FrameLayout} 说了算，而不是在这一侧再抄一遍下标。
+    */
+   private static int env(FrameLayout.Field field) {
+      return FrameLayout.slot(field);
    }
 
    private static boolean matrixReady(Matrix4fc matrix) {
@@ -88,15 +101,15 @@ final class GraphFrame {
       this.partialTick = partialTick;
       this.heldLight.update(level, partialTick, this.heldLighting);
       if (level != null) {
-         this.environment[0] = (float)Math.floorMod(level.getDefaultClockTime(), 24000L) + partialTick;
-         this.environment[1] = level.getRainLevel(partialTick);
-         this.environment[2] = level.getThunderLevel(partialTick);
-         this.environment[3] = level.dimension().equals(Level.NETHER) ? -1.0F : (level.dimension().equals(Level.END) ? 1.0F : (level.dimension().equals(Level.OVERWORLD) ? 0.0F : 2.0F));
+         this.environment[env(FrameLayout.Field.WORLD_TIME_WEATHER_DIMENSION) + 0] = (float)Math.floorMod(level.getDefaultClockTime(), 24000L) + partialTick;
+         this.environment[env(FrameLayout.Field.WORLD_TIME_WEATHER_DIMENSION) + 1] = level.getRainLevel(partialTick);
+         this.environment[env(FrameLayout.Field.WORLD_TIME_WEATHER_DIMENSION) + 2] = level.getThunderLevel(partialTick);
+         this.environment[env(FrameLayout.Field.WORLD_TIME_WEATHER_DIMENSION) + 3] = level.dimension().equals(Level.NETHER) ? -1.0F : (level.dimension().equals(Level.END) ? 1.0F : (level.dimension().equals(Level.OVERWORLD) ? 0.0F : 2.0F));
       }
 
       if (state != null) {
-         this.environment[32] = cloudOffset(state.gameTime, partialTick, this.cloudTextureWidth);
-         this.environment[33] = state.cloudHeight;
+         this.environment[env(FrameLayout.Field.CLOUD_OFFSET_AND_GAME_TIME) + 0] = cloudOffset(state.gameTime, partialTick, this.cloudTextureWidth);
+         this.environment[env(FrameLayout.Field.CLOUD_OFFSET_AND_GAME_TIME) + 1] = state.cloudHeight;
          if (level != null) {
             Vec3 eye = state.cameraRenderState.pos;
             double px = eye.x - (double)0.5F;
@@ -113,7 +126,7 @@ final class GraphFrame {
                for(int iy = 0; iy < 2; ++iy) {
                   for(int iz = 0; iz < 2; ++iz) {
                      float weight = (ix == 0 ? 1.0F - fx : fx) * (iy == 0 ? 1.0F - fy : fy) * (iz == 0 ? 1.0F - fz : fz);
-                      this.environment[34] += weight * (float)level.getBrightness(LightLayer.SKY, new BlockPos(bx + ix, by + iy, bz + iz)) / 15.0F;
+                      this.environment[env(FrameLayout.Field.CLOUD_OFFSET_AND_GAME_TIME) + 2] += weight * (float)level.getBrightness(LightLayer.SKY, new BlockPos(bx + ix, by + iy, bz + iz)) / 15.0F;
                   }
                }
             }
@@ -124,20 +137,20 @@ final class GraphFrame {
          SkyRenderState sky = state.skyRenderState;
          Vector3f direction = new Vector3f();
          CustomCelestials.setCelestialDirection(sky.sunAngle, direction);
-         this.environment[4] = direction.x;
-         this.environment[5] = direction.y;
-         this.environment[6] = direction.z;
-         this.environment[7] = sky.rainBrightness;
+         this.environment[env(FrameLayout.Field.SUN_DIRECTION_AND_RAIN_BRIGHTNESS) + 0] = direction.x;
+         this.environment[env(FrameLayout.Field.SUN_DIRECTION_AND_RAIN_BRIGHTNESS) + 1] = direction.y;
+         this.environment[env(FrameLayout.Field.SUN_DIRECTION_AND_RAIN_BRIGHTNESS) + 2] = direction.z;
+         this.environment[env(FrameLayout.Field.SUN_DIRECTION_AND_RAIN_BRIGHTNESS) + 3] = sky.rainBrightness;
          CustomCelestials.setCelestialDirection(sky.moonAngle, direction);
-         this.environment[8] = direction.x;
-         this.environment[9] = direction.y;
-         this.environment[10] = direction.z;
-         this.environment[11] = (float)sky.moonPhase.index();
-          this.environment[28] = sky.skyColor.x();
-          this.environment[29] = sky.skyColor.y();
-          this.environment[30] = sky.skyColor.z();
+         this.environment[env(FrameLayout.Field.MOON_DIRECTION_AND_PHASE) + 0] = direction.x;
+         this.environment[env(FrameLayout.Field.MOON_DIRECTION_AND_PHASE) + 1] = direction.y;
+         this.environment[env(FrameLayout.Field.MOON_DIRECTION_AND_PHASE) + 2] = direction.z;
+         this.environment[env(FrameLayout.Field.MOON_DIRECTION_AND_PHASE) + 3] = (float)sky.moonPhase.index();
+         this.environment[env(FrameLayout.Field.SKY_COLOR_AND_STAR_BRIGHTNESS) + 0] = sky.skyColor.x();
+         this.environment[env(FrameLayout.Field.SKY_COLOR_AND_STAR_BRIGHTNESS) + 1] = sky.skyColor.y();
+         this.environment[env(FrameLayout.Field.SKY_COLOR_AND_STAR_BRIGHTNESS) + 2] = sky.skyColor.z();
 
-          this.environment[31] = sky.starBrightness;
+         this.environment[env(FrameLayout.Field.SKY_COLOR_AND_STAR_BRIGHTNESS) + 3] = sky.starBrightness;
       }
 
    }
@@ -161,27 +174,30 @@ final class GraphFrame {
       Matrix4f projection = camera != null ? new Matrix4f(this.projection(camera)) : new Matrix4f();
       Matrix4f model = view == null ? new Matrix4f() : new Matrix4f(view);
       if (matrixReady(projection) && matrixReady(model)) {
-         projection.get(0, this.bytes);
-         model.get(64, this.bytes);
-         (new Matrix4f(projection)).invert().get(128, this.bytes);
-         (new Matrix4f(model)).invert().get(192, this.bytes);
-         (reset ? projection : this.previousProjection).get(256, this.bytes);
-         (reset ? model : this.previousView).get(320, this.bytes);
-         this.bytes.position(384);
+         projection.get(FrameLayout.offset(FrameLayout.Field.PROJECTION), this.bytes);
+         model.get(FrameLayout.offset(FrameLayout.Field.VIEW), this.bytes);
+         (new Matrix4f(projection)).invert().get(FrameLayout.offset(FrameLayout.Field.INVERSE_PROJECTION), this.bytes);
+         (new Matrix4f(model)).invert().get(FrameLayout.offset(FrameLayout.Field.INVERSE_VIEW), this.bytes);
+         (reset ? projection : this.previousProjection).get(FrameLayout.offset(FrameLayout.Field.PREVIOUS_PROJECTION), this.bytes);
+         (reset ? model : this.previousView).get(FrameLayout.offset(FrameLayout.Field.PREVIOUS_VIEW), this.bytes);
+         // 从这里往下四段是**顺序**写的：锚一次起点，之后靠 position 递增。
+         this.bytes.position(FrameLayout.offset(FrameLayout.Field.CAMERA_DELTA_AND_HISTORY_VALID));
          this.bytes.putFloat(!reset && camera != null ? (float)(camera.pos.x - this.x) : 0.0F);
          this.bytes.putFloat(!reset && camera != null ? (float)(camera.pos.y - this.y) : 0.0F);
          this.bytes.putFloat(!reset && camera != null ? (float)(camera.pos.z - this.z) : 0.0F);
          this.bytes.putFloat(reset ? 0.0F : 1.0F);
+         // TimeDeltaFrame 紧随其后（表里两者相邻，所以这里不锚点）。
          long now = System.nanoTime();
          this.bytes.putFloat((float)(now - this.start) * 1.0E-9F).putFloat(reset ? 0.0F : (float)(now - this.lastTime) * 1.0E-9F).putFloat(reset ? 0.0F : (float)this.frame).putFloat(this.partialTick);
+         // ViewSizeAndInverse 同理，然后是那 9 个 vec4 的暂存数组。
          this.bytes.putFloat((float)width).putFloat((float)height).putFloat(1.0F / (float)width).putFloat(1.0F / (float)height);
          if (camera != null) {
-             this.environment[12] = (float) camera.pos.x;
-             this.environment[13] = (float)camera.pos.y;
-             this.environment[14] = (float)camera.pos.z;
-             this.environment[16] = (float)(camera.pos.x - (double)this.environment[12]);
-             this.environment[17] = (float)(camera.pos.y - (double)this.environment[13]);
-             this.environment[18] = (float)(camera.pos.z - (double)this.environment[14]);
+             this.environment[env(FrameLayout.Field.CAMERA_POSITION_HIGH_AND_FOG_TYPE) + 0] = (float) camera.pos.x;
+             this.environment[env(FrameLayout.Field.CAMERA_POSITION_HIGH_AND_FOG_TYPE) + 1] = (float)camera.pos.y;
+             this.environment[env(FrameLayout.Field.CAMERA_POSITION_HIGH_AND_FOG_TYPE) + 2] = (float)camera.pos.z;
+             this.environment[env(FrameLayout.Field.CAMERA_POSITION_LOW_AND_FAR_PLANE) + 0] = (float)(camera.pos.x - (double)this.environment[env(FrameLayout.Field.CAMERA_POSITION_HIGH_AND_FOG_TYPE) + 0]);
+             this.environment[env(FrameLayout.Field.CAMERA_POSITION_LOW_AND_FAR_PLANE) + 1] = (float)(camera.pos.y - (double)this.environment[env(FrameLayout.Field.CAMERA_POSITION_HIGH_AND_FOG_TYPE) + 1]);
+             this.environment[env(FrameLayout.Field.CAMERA_POSITION_LOW_AND_FAR_PLANE) + 2] = (float)(camera.pos.z - (double)this.environment[env(FrameLayout.Field.CAMERA_POSITION_HIGH_AND_FOG_TYPE) + 2]);
 
              float var10002;
              switch (camera.fogType) {
@@ -191,26 +207,27 @@ final class GraphFrame {
                  default -> var10002 = 0.0F;
              }
 
-             this.environment[15] = var10002;
-            this.environment[19] = camera.depthFar;
+             this.environment[env(FrameLayout.Field.CAMERA_POSITION_HIGH_AND_FOG_TYPE) + 3] = var10002;
+            this.environment[env(FrameLayout.Field.CAMERA_POSITION_LOW_AND_FAR_PLANE) + 3] = camera.depthFar;
              FogData fog = camera.fogData;
-             this.environment[20] = fog.color.x;
-             this.environment[21] = fog.color.y;
-             this.environment[22] = fog.color.z;
+             this.environment[env(FrameLayout.Field.FOG_COLOR_AND_START) + 0] = fog.color.x;
+             this.environment[env(FrameLayout.Field.FOG_COLOR_AND_START) + 1] = fog.color.y;
+             this.environment[env(FrameLayout.Field.FOG_COLOR_AND_START) + 2] = fog.color.z;
 
-             this.environment[23] = fog.environmentalStart;
-             this.environment[24] = fog.environmentalEnd;
-             this.environment[25] = fog.renderDistanceStart;
-             this.environment[26] = fog.renderDistanceEnd;
-             this.environment[27] = fog.skyEnd;
+             this.environment[env(FrameLayout.Field.FOG_COLOR_AND_START) + 3] = fog.environmentalStart;
+             this.environment[env(FrameLayout.Field.FOG_DISTANCES) + 0] = fog.environmentalEnd;
+             this.environment[env(FrameLayout.Field.FOG_DISTANCES) + 1] = fog.renderDistanceStart;
+             this.environment[env(FrameLayout.Field.FOG_DISTANCES) + 2] = fog.renderDistanceEnd;
+             this.environment[env(FrameLayout.Field.FOG_DISTANCES) + 3] = fog.skyEnd;
          }
 
          for(float value : this.environment) {
             this.bytes.putFloat(value);
          }
 
-         (this.inverseHandProjection == null ? new Matrix4f() : this.inverseHandProjection).get(576, this.bytes);
-         this.bytes.position(640);
+         (this.inverseHandProjection == null ? new Matrix4f() : this.inverseHandProjection).get(FrameLayout.offset(FrameLayout.Field.INVERSE_HAND_PROJECTION), this.bytes);
+         // HeldLight 那三个字段是顺序写的，所以这里只锚它的起点。
+         this.bytes.position(FrameLayout.offset(FrameLayout.Field.HAND_PROJECTION_VALID));
          this.bytes.putFloat(this.inverseHandProjection == null ? 0.0F : 1.0F).putFloat(0.0F).putFloat(0.0F).putFloat(0.0F);
          this.heldLight.write(this.bytes, camera != null ? camera.pos : Vec3.ZERO);
          this.bytes.flip();

@@ -193,7 +193,7 @@ public final class GraphRenderer implements AutoCloseable {
                }
             }
 
-            this.present = this.pipeline("present", "#version 450\nlayout(location=0) in vec2 texCoord;\nlayout(location=0) out vec4 color;\nuniform sampler2D Source;\nvoid main() { color = texture(Source, texCoord); }\n", Set.of("Source"), List.of(main.getColorTexture().getFormat()), false);
+            this.present = this.pipeline("present", PRESENT, Set.of("Source"), List.of(main.getColorTexture().getFormat()), false);
             this.loadTextures(files);
             this.allocate(main.width, main.height);
             this.buffers = new GraphBuffers(graph);
@@ -239,7 +239,7 @@ public final class GraphRenderer implements AutoCloseable {
          this.heldPostPipelines.add(pipeline);
       }
 
-      GraphShaderSources.put(this.shaderSources, pipeline, "#version 450\nlayout(location=0) out vec2 texCoord;\nvoid main() {\n\ttexCoord = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);\n\tgl_Position = vec4(texCoord * 2.0 - 1.0, 0.0, 1.0);\n}\n", fragment);
+      GraphShaderSources.put(this.shaderSources, pipeline, VERTEX, fragment);
       if (RenderSystem.getCompiledPipelineNullable(pipeline) == null) {
          throw new IOException("Shader compilation failed in pass " + label + "; see log for source diagnostics");
       } else {

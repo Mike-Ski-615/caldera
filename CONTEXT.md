@@ -30,6 +30,9 @@
   "这一帧在用哪个渲染器"归 `SceneFrame` 持有，而"什么时候换上／换下"归 `NativePackRuntime` 决定。
 - **场景目标（scene target）** — 包图声明为"要接管的原版渲染目标"的那几张图，用于把原版几何
   画进原生 pass。
+- **帧 uniform（CalderaFrame）** — 每帧一次、全包共用的那段 uniform 块。布局（23 个字段、1072 字节）
+  只在 `FrameLayout` 里**声明一次**：GLSL 成员、字节偏移与 `environment[]` 的 36 个槽位都由它生成或
+  派生；写入侧不再写魔数。它与 GLSL 的一致性由金样测试钉住。
 - **可重载资源（reloadable resources）** — 跨**资源重载**存活的进程级 GPU 状态（管线缓存、
   阴影 RenderTarget、Sodium 的 render-list 计划缓存）。**所有者（owner）** 是持有它们的那一个模块；
   每个所有者在自己的定义处把释放动作登记进 `ReloadableResources`，释放只发生在 `closeAll()`。
