@@ -149,8 +149,7 @@ public final class CascadePlanner {
       int activeCascadeCount = activeCascadeCount(quality);
       ++this.frameSerial;
       if (skyPresent) {
-         CustomCelestials.setCelestialDirection(sunAngle, this.sunDirection);
-         CustomCelestials.setCelestialDirection(moonAngle, this.moonDirection);
+         this.updateCelestialDirections(sunAngle, moonAngle);
          this.celestialShadowFade = smoothstep(CELESTIAL_FADE_START, CELESTIAL_FADE_END, Math.abs(this.sunDirection.y - this.moonDirection.y));
          this.lightDirection.set(this.sunDirection.y >= this.moonDirection.y ? this.sunDirection : this.moonDirection);
          if (this.lightDirection.y < 0.08F) {
@@ -246,6 +245,36 @@ public final class CascadePlanner {
             this.celestialShadowFade);
       this.last = schedule;
       return schedule;
+   }
+
+   /**
+    * 从天空状态刷新日、月方向。
+    * <p>
+    * 它**与阴影质量无关**：只要这一帧拿得到天空状态，日月的方向就是确定的。所以调用点
+    * 由 {@code prepare()}（这个类的帧入口）负责，而不是留在这个只在"阴影真的在计划"时才
+    * 进得来的方法里——{@code prepare()} 里那道质量判定会把没有阴影的帧全部挡在外面。
+    * <p>
+    * 这两个方向本来就是阴影的真实输入：光照方向取较高的那个，日月的高度差还决定
+    * {@code celestialShadowFade}。所以它们不是为门禁而存在的值，门禁只是**读**它们。
+    */
+   void updateCelestialDirections(float sunAngle, float moonAngle) {
+      CustomCelestials.setCelestialDirection(sunAngle, this.sunDirection);
+      CustomCelestials.setCelestialDirection(moonAngle, this.moonDirection);
+   }
+
+   /**
+    * 当前的太阳方向。包可见：只有 {@link DirectionalShadowRenderer} 把它转成公开的只读访问器。
+    * <p>
+    * 返回的是内部那个向量本身，调用方**必须立刻拷走**（{@code DirectionalShadowRenderer} 是
+    * {@code set()} 进调用方给的 destination）。与 {@code planner()} 一样，这是包内信任。
+    */
+   Vector3f sunDirection() {
+      return this.sunDirection;
+   }
+
+   /** 当前的月亮方向。理由与{@link #sunDirection()}完全相同。 */
+   Vector3f moonDirection() {
+      return this.moonDirection;
    }
 
    /**

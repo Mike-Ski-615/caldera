@@ -1,13 +1,12 @@
 package com.caldera.shaders.graph;
 
 import com.mojang.logging.LogUtils;
-import com.caldera.shaders.render.sky.CustomCelestials;
+import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.runtime.ShaderRuntime;
 import java.nio.file.Path;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
-import net.minecraft.client.renderer.state.level.LevelRenderState;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -24,14 +23,6 @@ final class NativeEnvironmentSmoke {
    private static final Vector3f moon = new Vector3f();
    private static final String[] NAMES = new String[]{"day", "sunset", "night", "rain", "underwater", "sun", "moon", "cave"};
    private static final int[] TIMES = new int[]{6000, 12000, 18000, 6000, 6000, 12000, 18000, 18000};
-
-   static void observe(LevelRenderState state) {
-      if (state != null) {
-         CustomCelestials.setCelestialDirection(state.skyRenderState.sunAngle, sun);
-         CustomCelestials.setCelestialDirection(state.skyRenderState.moonAngle, moon);
-      }
-
-   }
 
    static void tick(Minecraft client) {
       if (!pending && !finished && client.level != null && client.gui.overlay() == null && !ShaderRuntime.resourceReloading()) {
@@ -51,7 +42,13 @@ final class NativeEnvironmentSmoke {
 
             ++ticks;
             if ((phase == 5 || phase == 6) && ticks == 30) {
-               Vector3f direction = phase == 5 ? sun : moon;
+               // 日月方向改由这里主动读，而不是由生产代码在每帧渲染里"推"进来：那条推送会让
+               // 生产必须引用这个类，于是它就得跟着 jar 一起发出去。DirectionalShadowRenderer
+               // 每帧在 prepare() 里刷新这两个值（它们本来就是它算光照方向的中间量），
+               // 所以这里读到的是当前这一帧的。
+               Vector3f direction = phase == 5
+                     ? DirectionalShadowRenderer.get().sunDirection(sun)
+                     : DirectionalShadowRenderer.get().moonDirection(moon);
                 if (client.player != null) {
                     client.player.setYRot((float)Math.toDegrees(Math.atan2(-direction.x, direction.z)));
                 }
@@ -182,7 +179,6 @@ final class NativeEnvironmentSmoke {
 
    private static void fail(Minecraft client, Throwable error) {
       finished = true;
-      LogUtils.getLogger().error("CALDERA_ENVIRONMENT_SMOKE_FAIL", error);
-      client.stop();
+      SmokeFailure.fail(client, "CALDERA_ENVIRONMENT_SMOKE_FAIL", error);
    }
 }

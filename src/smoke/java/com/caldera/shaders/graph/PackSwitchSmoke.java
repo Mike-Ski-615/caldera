@@ -108,7 +108,6 @@ final class PackSwitchSmoke {
 
    private static void fail(Minecraft client, Throwable failure) {
       finished = true;
-      LogUtils.getLogger().error("CALDERA_PACK_SWITCH_SMOKE_FAIL", failure);
-      client.stop();
+      SmokeFailure.fail(client, "CALDERA_PACK_SWITCH_SMOKE_FAIL", failure);
    }
 }

@@ -148,9 +148,6 @@ public interface ShaderHost {
 	 */
 	void invalidateCompiledGeometry();
 
-	/** 是否跑在开发环境里。只有开发环境才启用那些 smoke 开关。 */
-	boolean developmentEnvironment();
-
 	/**
 	 * 有效渲染距离（区块数）。
 	 * <p>

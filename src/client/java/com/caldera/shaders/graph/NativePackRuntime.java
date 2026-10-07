@@ -611,8 +611,8 @@ public final class NativePackRuntime {
    /**
     * 开／关本帧的 frame scope，并强制它是**平衡**的。
     * <p>
-    * 这一对由 {@code NativeSceneMixin} 在 {@code renderLevel} 的首尾各调一次；{@code GraphGpuSmoke}
-    * 也拿它给一段自建的 pass 圈一个作用域。不配对的调用（重复开、或没开就关）是 bug，
+    * 这一对由 {@code NativeSceneMixin} 在 {@code renderLevel} 的首尾各调一次；开发期门禁
+    * （另一个模块，见 {@code src/smoke}）也拿它给一段自建的 pass 圈一个作用域。不配对的调用（重复开、或没开就关）是 bug，
     * 而且原先是一个静默的状态赋值——一帧画错不会有任何提示。
     */
    private void setFrameScopeNow(boolean enabled) {
@@ -641,10 +641,6 @@ public final class NativePackRuntime {
 
       if (this.sceneBegun) {
          throw new IllegalStateException("Caldera scene begun twice without an intervening finishScene()");
-      }
-
-      if (Boolean.getBoolean("caldera.environmentSmoke") && this.host.developmentEnvironment()) {
-         NativeEnvironmentSmoke.observe(state);
       }
 
       if (!this.geometryRebuildPending && GraphFrame.cameraReady(currentCamera, currentView)) {

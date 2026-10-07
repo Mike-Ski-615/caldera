@@ -156,6 +156,13 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
    @Override
    public void prepare(LevelRenderState levelRenderState) {
       ShaderQualityPreset quality = ShadowService.quality();
+      // 日月方向与阴影质量无关：这一帧只要有天空状态就刷新，且必须在下面那道质量判定**之前**。
+      // 原因是访问器（sunDirection/moonDirection）承诺的是"本帧的天体状态"，而 prepare() 是本类的
+      // 帧入口——把它留在 plan() 里的 skyPresent 分支，就会在阴影未启用的帧上停在上一帧的值。
+      if (levelRenderState != null && levelRenderState.skyRenderState != null) {
+         this.planner.updateCelestialDirections(levelRenderState.skyRenderState.sunAngle, levelRenderState.skyRenderState.moonAngle);
+      }
+
       if (quality.enabled() && levelRenderState != null && levelRenderState.cameraRenderState != null) {
          ShaderHost installed = requireHost();
          int maxShadowSize = Math.min(installed.maxTextureSizeForFormat(GpuFormat.R8_UNORM), installed.maxTextureSizeForFormat(GpuFormat.D32_FLOAT));
@@ -233,6 +240,24 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
 
    public Vector3f lightDirection(Vector3f destination) {
       return destination.set(this.schedule.lightDirection());
+   }
+
+   /**
+    * 本帧的太阳方向（只读）。
+    * <p>
+    * 来源与{@link #lightDirection(Vector3f)}不同：这里读的是 {@code planner} 的当前天体状态，
+    * 而不是 {@code schedule}。{@link #prepare(LevelRenderState)} 每帧都刷新前者，而后者只在阴影
+    * 真的在计划时才更新。日月的方向本身与阴影无关，所以它的时点跟着帧入口走。
+    * <p>
+    * 与 {@link #lightDirection(Vector3f)} 一样，写进调用方给的 {@code destination} 并返回它。
+    */
+   public Vector3f sunDirection(Vector3f destination) {
+      return destination.set(this.planner.sunDirection());
+   }
+
+   /** 本帧的月亮方向（只读）。理由与{@link #sunDirection(Vector3f)}完全相同。 */
+   public Vector3f moonDirection(Vector3f destination) {
+      return destination.set(this.planner.moonDirection());
    }
 
    public Vector3f cameraForward(Vector3f destination) {

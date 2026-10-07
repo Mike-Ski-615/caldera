@@ -276,8 +276,7 @@ final class NativeShadowSmoke {
 
    private static void fail(Minecraft client, Throwable error) {
       finished = true;
-      LogUtils.getLogger().error("CALDERA_NATIVE_SHADOW_SMOKE_FAIL", error);
-      client.stop();
+      SmokeFailure.fail(client, "CALDERA_NATIVE_SHADOW_SMOKE_FAIL", error);
    }
 
    @FunctionalInterface

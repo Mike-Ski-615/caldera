@@ -176,11 +176,6 @@ public final class MinecraftShaderHost implements ShaderHost {
 	}
 
 	@Override
-	public boolean developmentEnvironment() {
-		return FabricLoader.getInstance().isDevelopmentEnvironment();
-	}
-
-	@Override
 	public int renderDistance() {
 		return Minecraft.getInstance().options.getEffectiveRenderDistance();
 	}

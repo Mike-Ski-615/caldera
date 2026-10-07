@@ -22,6 +22,11 @@ base {
 // （改时间/天气/旁观），所以它得是一次性世界。scripts/make-qa-world.py 负责把它造出来。
 // 全程无人值守：quick-play 直接进世界，跑满帧数截图，然后客户端自己退出。
 //
+// 这些开关**只在开发环境里**生效，而且承载它们的那 5 个 smoke 类现在住在一个独立的 dev mod
+// （id caldera-dev，源码在 src/smoke）里。它由下面的 sourceSets/mods 配置挂进 runClient：
+// 少了那条配置，客户端会正常启动、世界会正常加载，但那 5 个开关**什么也不做**——门禁就再也
+// 截不出图了。这不是假设：把 mods 里那个条目删掉就会看到这一种失败法。
+//
 // 门禁的读法（实测，别照直觉读）：
 //   同一个构建跑两次，画面差异可以到 mean 4.4/255；偶尔会出现一次明显偏灰的跑（mean 11.7，
 //   同构建之间也一样）。所以**单张 before/after 对比会骗人**——曾有一次同构建差异
@@ -42,6 +47,12 @@ def calderaSmokeProperties = [
 	"caldera.demoScene",
 ]
 
+// 开发期门禁（那 5 个 smoke 类）住在**自己的 mod** 里，而不是 src/client/java。
+// 于是它不进 jar，生产代码也不必再引用它——两条都由 Loom 的既有机制保证，没有自造的东西。
+sourceSets {
+	smoke
+}
+
 loom {
 	splitEnvironmentSourceSets()
 
@@ -49,6 +60,9 @@ loom {
 		"caldera" {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
+		}
+		"caldera-dev" {
+			sourceSet sourceSets.smoke
 		}
 	}
 
@@ -74,6 +88,22 @@ loom {
 		}
 	}
 }
+// 为什么是"独立 mod"而不是把这几个类挂到 caldera 名下：那样就没有第二个入口点可挂
+// （fabric.mod.json 是共用的、要随 jar 发出去），于是生产侧必须留一个能引用 harness 的钩子——
+// 而那正是这次要拆掉的东西。独立 mod 让调用方向反过来：harness 在自己的入口点里注册自己。
+//
+// 挂到 client 的 runtimeClasspath 是**必需**的那一条：Loader 枚举的是 JVM classpath
+// （getResources("fabric.mod.json")），分组是在那之后才套上去的。少了它，客户端会一切正常
+// 地启动、世界也照常加载，但那 5 个开关什么也不做——门禁就再也截不出图。
+//
+// mods 里那个独立条目则**不是**必需的：实测把它删掉，门禁同样 PASS，dev mod 同样被加载
+// （Loader 对不在任何组里的 fabric.mod.json 会退回"单路径候选"，见 ClasspathModCandidateFinder:60-61）。
+// 留它是因为它才是 Loom 声明的"这个源码集属于哪个 mod"，并且它让 smoke 的 class 目录也进这个 mod
+// 的 root paths，而不是只有那个装着 fabric.mod.json 的 resources 目录。
+sourceSets.smoke.compileClasspath += sourceSets.main.output
+sourceSets.smoke.compileClasspath += sourceSets.client.output
+sourceSets.smoke.compileClasspath += sourceSets.client.compileClasspath
+sourceSets.client.runtimeClasspath += sourceSets.smoke.output
 
 // Sodium 只在 CaffeineMC 自己的仓库里发布；MixinExtras 在 Maven Central。
 repositories {
@@ -112,6 +142,13 @@ sourceSets.test.runtimeClasspath += sourceSets.client.output
 
 tasks.withType(Test).configureEach {
 	useJUnitPlatform()
+}
+
+// 普通构建也要编译门禁。那 5 个类**只在**截图门禁跑的时候才被用到，一个没人编译的 harness
+// 会安静地烂掉——它编译不过必须当场知道，而不是等到下一次门禁跑出一个奇怪的结果。
+// 挂 check 而不是 build：它是验证的一部分，不是产物的一部分（它不进任何 jar）。
+tasks.named("check") {
+	dependsOn sourceSets.smoke.classesTaskName
 }
 
 processResources {

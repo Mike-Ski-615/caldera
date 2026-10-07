@@ -190,8 +190,6 @@ public final class FakeShaderHost implements ShaderHost {
 	public ClientLevel level;
 	/** inOverworld() 的返回值。故意与 level 解耦：模块从不解读 level，只问这一句。 */
 	public boolean inOverworld;
-	/** developmentEnvironment() 的返回值。默认 false，于是 smoke 开关一律不生效。 */
-	public boolean developmentEnvironment;
 	/** 每一次 submitCommands() 与 queueFence()。 */
 	public final List<String> gpuCommands = new ArrayList<>();
 
@@ -227,11 +225,6 @@ public final class FakeShaderHost implements ShaderHost {
 	@Override
 	public void invalidateCompiledGeometry() {
 		this.events.add("invalidateCompiledGeometry");
-	}
-
-	@Override
-	public boolean developmentEnvironment() {
-		return this.developmentEnvironment;
 	}
 
 	/** renderDistance() 的返回值。默认 12，一个不会让覆盖范围被截断的值。 */

@@ -1,7 +1,6 @@
 package com.caldera.shaders;
 
 import com.mojang.logging.LogUtils;
-import com.caldera.shaders.graph.GraphGpuSmoke;
 import com.caldera.shaders.graph.NativePackRuntime;
 import com.caldera.shaders.render.shadow.DirectionalShadowRenderer;
 import com.caldera.shaders.runtime.BackendStatus;
@@ -35,7 +34,6 @@ public final class CalderaShadersClient implements ClientModInitializer {
       ClientLifecycleEvents.CLIENT_STARTED.register(client -> ShaderRuntime.bootstrap());
       ClientLifecycleEvents.CLIENT_STOPPING.register((ClientLifecycleEvents.ClientStopping)(client) -> ShaderRuntime.close());
       ClientTickEvents.END_CLIENT_TICK.register((ClientTickEvents.EndTick)(client) -> {
-         GraphGpuSmoke.tick(client);
          if (!this.backendNoticeShown && client.gui.overlay() == null && client.gui.screen() instanceof TitleScreen) {
             this.backendNoticeShown = true;
             if (!BackendStatus.vulkanActive()) {
