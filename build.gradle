@@ -2,11 +2,13 @@ plugins {
 	id "net.fabricmc.fabric-loom" version "${loom_version}"
 }
 
-version = project.mod_version
-group = project.maven_group
-
-base {
-	archivesName = "caldera"
+repositories {
+	// Loom 会自动添加 Minecraft、Fabric 与 Maven Central 三个仓库，
+	// 所以这里只声明它不会加的那个：Sodium 只发布在 CaffeineMC 自己的仓库里。
+	maven {
+		name = "CaffeineMC"
+		url = "https://maven.caffeinemc.net/releases"
+	}
 }
 
 loom {
@@ -20,22 +22,11 @@ loom {
 	}
 }
 
-// Sodium 只在 CaffeineMC 自己的仓库里发布；MixinExtras 在 Maven Central。
-// 阿里云镜像放在最前，实测 Maven Central 制品快约 2.4 倍（22 vs 9 MB/s）；
-// 官方仓库全部保留作兜底 —— 镜像缺件时 Gradle 会自动回落到后面几个。
-repositories {
-	maven { url = "https://maven.aliyun.com/repository/public" }
-	maven {
-		name = "CaffeineMC"
-		url = "https://maven.caffeinemc.net/releases"
-	}
-	mavenCentral()
-}
-
 dependencies {
+	// 版本号见 gradle.properties
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
-	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
 	// 0.5.1 硬依赖 Sodium：mixin/sodium/** 会在编译期引用它的内部类。
 	// 用 implementation 而非 modImplementation —— Sodium 与 Minecraft 同为 official 命名空间，
@@ -48,10 +39,14 @@ dependencies {
 }
 
 processResources {
-	inputs.property "version", project.version
+	// 必须先把 project.version 取到局部变量再用于 expand。
+	// 直接写 inputs.properties.version 会在 configuration cache 下失败：
+	// copy-spec 的闭包里拿不到 inputs，报 "> inputs"。
+	def version = project.version
+	inputs.property "version", version
 
 	filesMatching("fabric.mod.json") {
-		expand "version": inputs.properties.version
+		expand "version": version
 	}
 }
 
@@ -61,16 +56,13 @@ tasks.withType(JavaCompile).configureEach {
 
 java {
 	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
 }
 
-tasks.named("jar", Jar).configure {
-	archiveVersion = "${project.mod_version}-${project.minecraft_version}"
-}
-
-tasks.matching { it.name == "remapJar" }.configureEach {
-	archiveVersion = "${project.mod_version}-${project.minecraft_version}"
-}
-
-tasks.named("sourcesJar", Jar).configure {
-	archiveVersion = "${project.mod_version}-${project.minecraft_version}"
+// 产物名带 Minecraft 版本后缀，例如 caldera-0.5.1-26.3.jar。
+// 用 AbstractArchiveTask 一次覆盖 jar、sourcesJar 等全部归档任务。
+tasks.withType(org.gradle.api.tasks.bundling.AbstractArchiveTask).configureEach {
+	archiveVersion = "${project.version}-${project.minecraft_version}"
 }

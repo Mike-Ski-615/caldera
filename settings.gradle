@@ -4,8 +4,10 @@ pluginManagement {
 			name = "Fabric"
 			url = "https://maven.fabricmc.net/"
 		}
+		mavenCentral()
 		gradlePluginPortal()
 	}
 }
 
+// 应与 fabric.mod.json 里的 id 一致
 rootProject.name = "caldera"
