@@ -47,7 +47,7 @@ final class GraphBuffers implements AutoCloseable {
                for(int i = 0; i < pair.length; ++i) {
                   LongBuffer handle = stack.mallocLong(1);
                   PointerBuffer allocation = stack.mallocPointer(1);
-                  int result = Vma.vmaCreateBuffer(this.device.vma(), VkBufferCreateInfo.calloc(stack).sType$Default().size(definition.bytes()).usage(34).sharingMode(0), VmaAllocationCreateInfo.calloc(stack).usage(8), handle, allocation, (VmaAllocationInfo)null);
+                  int result = Vma.vmaCreateBuffer(this.device.vma(), VkBufferCreateInfo.calloc(stack).sType$Default().size(definition.bytes()).usage(VK10.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK10.VK_BUFFER_USAGE_TRANSFER_DST_BIT).sharingMode(VK10.VK_SHARING_MODE_EXCLUSIVE), VmaAllocationCreateInfo.calloc(stack).usage(Vma.VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE), handle, allocation, (VmaAllocationInfo)null);
                   if (result != 0) {
                      throw new IOException("Cannot allocate storage buffer " + name + ": Vulkan " + result);
                   }

@@ -251,7 +251,7 @@ public final class GraphRenderer implements AutoCloseable, ActiveRenderer {
       width = Math.max(1, width);
       height = Math.max(1, height);
       if (this.width != width || this.height != height) {
-         if (this.graph.allocationBytes(width, height) + this.textureBytes + (this.heldShadows == null ? 0L : 7864320L) + this.sceneCapture.bytes(width, height) + CascadePlanner.shadowMemoryBytes(this.graph.shadowQuality()) > this.graph.budgetBytes()) {
+         if (this.graph.allocationBytes(width, height) + this.textureBytes + (this.heldShadows == null ? 0L : HeldLightShadowRenderer.MEMORY_BYTES) + this.sceneCapture.bytes(width, height) + CascadePlanner.shadowMemoryBytes(this.graph.shadowQuality()) > this.graph.budgetBytes()) {
             throw new IllegalArgumentException("Textures and render targets exceed pack memory budget");
          } else {
             Map<String, Image[]> fresh = new LinkedHashMap<>();
