@@ -1,0 +1,14 @@
+# 统一换行符策略。
+# 本项目在 Windows 上开发，而 git 的 core.autocrlf=true 会把文本文件在
+# 检出时转成 CRLF —— 那样 gradlew（shell 脚本）在 Git Bash / WSL / Linux 上
+# 会直接失败：bad interpreter: /bin/sh^M
+* text=auto
+gradlew text eol=lf
+*.bat text eol=crlf
+*.sh text eol=lf
+
+# 二进制文件不做任何换行转换
+*.jar binary
+*.png binary
+*.zip binary
+*.gz binary
