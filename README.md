@@ -78,12 +78,16 @@ src/
 
 这个项目有几个源在境内很慢，实测数据：
 
-| 源 | 直连 | 处理方式 |
+| 源 | 实测 | 处理方式 |
 |---|---|---|
-| `maven.fabricmc.net`（Loom 插件、Fabric API） | **0.02–0.08 MB/s，且会完全卡死** | **必须走代理**，无可用镜像 |
-| Gradle 发行包 | 30 MB/s | 已改指腾讯云镜像（49 MB/s） |
-| Maven Central | 7.5 MB/s | 走代理反而更慢（1.9 MB/s），已加入代理绕过列表 |
+| `maven.fabricmc.net`（Loom 插件、Fabric API） | **0.02–0.08 MB/s，且会反复完全卡死** | **必须走代理**，无可用镜像 |
+| Gradle 发行包（`services.gradle.org`） | 经代理 64–73 秒；直连 3 次里 2 次 0 字节 | 交给代理，一次性下载后长期缓存 |
+| Maven Central | 直连 7.5 MB/s，走代理只有 1.9 MB/s | **加入代理绕过列表** |
 | `maven.caffeinemc.net`（Sodium） | 0.5 MB/s | 无镜像，文件小可接受 |
+
+`distributionUrl` 保持官方地址（与官方模板一致）。若哪天需要重下 Gradle，境内可临时改成
+`https://mirrors.cloud.tencent.com/gradle/`（实测 26–54 MB/s，3–5 秒），但**不要提交这个改动** ——
+它在 GitHub Actions 的境外 runner 上反而更慢。
 
 如果卡在下载，配一个 HTTP 代理（**放在全局 `~/.gradle/gradle.properties`，不要提交到仓库**）：
 
