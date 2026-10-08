@@ -206,6 +206,12 @@ public final class CascadePlanner {
             }
 
             this.cascadeMatrices[i].set(this.renderedCascadeMatrices[i]).translate((float)(this.cameraX - this.renderedCameraX[i]), (float)(this.cameraY - this.renderedCameraY[i]), (float)(this.cameraZ - this.renderedCameraZ[i]));
+            // 实体阴影**只覆盖第 0 个级联**，这个 `i < 1` 不是笔误、也不是保守取值：
+            // entityTargetSize(...) 的守卫同样是 `cascade < 1`，也就是实体阴影图只为级联 0 分配。
+            // 三处必须一起看：这里、CascadeSchedule.entityCascadeEnd 的 min(1, count) 守卫、
+            // 以及 GLSL 侧 "cascade == 0 ? ... : 1.0"（directional_shadow.glsl）。改这里就要同时改
+            // 那两处与资源分配，否则会出现"计划要更新一个没有图的级联"。
+            // 地形不受这条限制：它覆盖到最远级联，也就是 SHADOW_DISTANCE 的远端。
             boolean entityUpdate = entityShadowsEnabled && i < 1 && (layoutChanged || !this.entityCascadeInitialized[i] || update || this.frameSerial - this.renderedEntityFrameSerial[i] >= (long)ENTITY_UPDATE_INTERVALS[i]);
             this.entityCascadeUpdates[i] = entityUpdate;
             if (entityUpdate) {

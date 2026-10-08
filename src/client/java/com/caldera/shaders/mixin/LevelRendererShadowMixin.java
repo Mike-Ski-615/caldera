@@ -89,6 +89,16 @@ public abstract class LevelRendererShadowMixin {
    @Unique
    private boolean caldera$hasNearShadowEntitySubmits;
 
+   /**
+    * 实体阴影的最小提交距离。
+    * <p>
+    * 与 {@link DirectionalShadowSubmitFilter#ENTITY_DISTANCE_PADDING} 是**两件事**：那个是"再退多远"
+    * 的余量，这个是"哪怕级联尽头很近也至少覆盖这么远"的下限。两者原先都是散在调用点上的字面量
+    * {@code 24.0F}，看上去像同一个数被用了两次；它们恰好相等只是巧合，所以这里分开命名。
+    */
+   @Unique
+   private static final float MIN_ENTITY_SHADOW_DISTANCE = 24.0F;
+
    @Inject(
       method = {"render"},
       at = {@At(
@@ -119,7 +129,7 @@ public abstract class LevelRendererShadowMixin {
       if (!ShaderRuntime.resourceReloading() && NativePackRuntime.shadowsEnabled()) {
          DirectionalShadowPipelines.ensureInitialized();
          DirectionalShadowRenderer shadows = DirectionalShadowRenderer.get();
-         this.caldera$shadowSubmitFilter = new DirectionalShadowSubmitFilter(this.caldera$nearShadowSubmitStorage, (double)Math.max(24.0F, shadows.entityCascadeEnd(0)));
+         this.caldera$shadowSubmitFilter = new DirectionalShadowSubmitFilter(this.caldera$nearShadowSubmitStorage, (double)Math.max(MIN_ENTITY_SHADOW_DISTANCE, shadows.entityCascadeEnd(0)));
          boolean hadEntityOutlines = this.levelRenderState.shouldShowEntityOutlines;
          this.levelRenderState.shouldShowEntityOutlines = false;
 
@@ -316,7 +326,7 @@ public abstract class LevelRendererShadowMixin {
    private void caldera$submitNativeShadowEntities(DeltaTracker deltaTracker, CameraRenderState cameraState) {
       ClientLevel level = Minecraft.getInstance().level;
       if (level != null && cameraState != null && cameraState.pos != null) {
-         double distance = (double)Math.max(24.0F, DirectionalShadowRenderer.get().entityShadowDistance()) + (double)24.0F;
+         double distance = (double)Math.max(MIN_ENTITY_SHADOW_DISTANCE, DirectionalShadowRenderer.get().entityShadowDistance()) + DirectionalShadowSubmitFilter.ENTITY_DISTANCE_PADDING;
          float partialTick = deltaTracker.getGameTimeDeltaPartialTick(true);
 
          for(Entity entity : level.entitiesForRendering()) {
