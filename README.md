@@ -25,11 +25,12 @@ Minecraft 的原生光影支持，基于 Vulkan 渲染器，由 Sodium 驱动。
 产物在 `build/libs/`：
 
 ```
-caldera-<mod_version>-<minecraft_version>.jar           模组本体
-caldera-<mod_version>-<minecraft_version>-sources.jar   源码包
+caldera-<version>.jar           模组本体
+caldera-<version>-sources.jar   源码包
 ```
 
-例如 `caldera-0.5.1-26.3.jar`。产物名由 `build.gradle` 里的 `AbstractArchiveTask` 统一设置。
+例如 `caldera-0.5.1.jar`。命名沿用 Gradle 默认规则（`archivesName` 取项目名，版本取 `version`），
+与官方 fabric-example-mod 模板一致，不带 Minecraft 版本后缀。
 
 **需要 JDK 25，并设置 `JAVA_HOME`**（指向 JDK 根目录，不是 `bin`）：
 

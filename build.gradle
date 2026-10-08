@@ -76,9 +76,3 @@ jar {
 		rename { "${it}_$projectName" }
 	}
 }
-
-// 产物名带 Minecraft 版本后缀，例如 caldera-0.5.1-26.3.jar。
-// 用 AbstractArchiveTask 一次覆盖 jar、sourcesJar 等全部归档任务。
-tasks.withType(org.gradle.api.tasks.bundling.AbstractArchiveTask).configureEach {
-	archiveVersion = "${project.version}-${project.minecraft_version}"
-}
