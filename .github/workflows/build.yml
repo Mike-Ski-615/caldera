@@ -1,0 +1,42 @@
+# 每次 push 与 pull request 自动构建，并跑已配置的测试。
+# 作用：在别人（和未来的你）的平台上尽早发现只在本机不出现的问题。
+
+name: build
+on: [pull_request, push]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+
+      - name: validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+
+      # 仓库里的 gradle-wrapper.properties 指向腾讯云镜像（为国内网络优化）。
+      # GitHub Actions 的 runner 在境外，走国内镜像反而慢甚至失败，所以在这里
+      # 临时改回官方地址。只影响本次 CI 运行，不写回仓库。
+      - name: use official Gradle distribution on CI runners
+        run: |
+          sed -i 's|mirrors\.cloud\.tencent\.com/gradle/|services.gradle.org/distributions/|' \
+            gradle/wrapper/gradle-wrapper.properties
+          grep distributionUrl gradle/wrapper/gradle-wrapper.properties
+
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: build
+        run: ./gradlew build
+
+      - name: capture build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Artifacts
+          path: build/libs/
