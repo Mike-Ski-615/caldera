@@ -4,6 +4,7 @@
 	"version": "${version}",
 	"name": "Caldera",
 	"description": "Native shader support for Minecraft's Vulkan renderer, powered by Sodium.",
+	"icon": "assets/caldera/icon.png",
 	"authors": [
 		"Mike_Ski"
 	],
