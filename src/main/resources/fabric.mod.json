@@ -8,6 +8,10 @@
 	"authors": [
 		"Mike_Ski"
 	],
+	"contact": {
+		"sources": "https://github.com/Mike-Ski-615/caldera"
+	},
+	"license": "LGPL-3.0",
 	"environment": "client",
 	"entrypoints": {
 		"client": [

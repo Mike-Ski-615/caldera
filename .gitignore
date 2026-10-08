@@ -1,7 +1,32 @@
+# Gradle
 .gradle/
 build/
+out/
+classes/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+*.launch
+.settings/
+.vscode/
+bin/
+.classpath
+.project
+
+# Fabric 开发环境运行目录
 run/
-*/build/
+
+# 日志与 JVM 转储
+# *.hprof 尤其重要：Loom 吃内存，OOM 时会吐出几 GB 的堆转储
 *.log
 logs/
-.idea
+hs_err_*.log
+replay_*.log
+*.hprof
+*.jfr
+
+# macOS
+*.DS_Store
