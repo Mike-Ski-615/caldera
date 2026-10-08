@@ -36,6 +36,21 @@ dependencies {
 	// MixinExtras 由 Fabric Loader 以嵌套 jar 形式在运行期提供（0.5.5），
 	// 所以只需进编译期 classpath，不打包。
 	compileOnly "io.github.llamalad7:mixinextras-fabric:${project.mixinextras_version}"
+
+	testImplementation platform("org.junit:junit-bom:5.11.4")
+	testImplementation "org.junit.jupiter:junit-jupiter"
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+// 测试只覆盖纯函数（清单解析与校验、pass 调度、显存预算、路径安全、
+// #include 展开、光影包扫描、光影生命周期），所以把客户端源码集也挂上去即可，
+// 不需要启动游戏、也不需要 Fabric Loader 的运行时。
+// 生命周期之所以可测，是因为它经由 ShaderHost 端口取得游戏能力，见 docs/adr/0003。
+sourceSets.test.compileClasspath += sourceSets.client.output
+sourceSets.test.runtimeClasspath += sourceSets.client.output
+
+tasks.withType(Test).configureEach {
+	useJUnitPlatform()
 }
 
 processResources {
