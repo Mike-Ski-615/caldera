@@ -61,6 +61,22 @@ java {
 	targetCompatibility = JavaVersion.VERSION_25
 }
 
+jar {
+	// 把许可证文本打进产物。LGPL-3.0 是 GPL-3.0 的附加许可，其第 4 条要求
+	// 随作品一并分发 GPL 与 LGPL 两份文本，所以 LICENSE 和 COPYING 都要进去。
+	// 文件名加模组名后缀，避免与其他模组的许可证文件在多模组环境里冲突。
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	// 必须用 files(...) 包成"单个"参数。
+	// 写成 from("LICENSE", "COPYING") { } 会因为参数个数为 3 而匹配不上
+	// from(Object, Closure) 这个重载，退化成 from(Object...)，尾随闭包会被
+	// 当成一个待求值的"路径"来源，最终导致 :jar 依赖它自己（循环依赖）。
+	from(files("LICENSE", "COPYING")) {
+		rename { "${it}_$projectName" }
+	}
+}
+
 // 产物名带 Minecraft 版本后缀，例如 caldera-0.5.1-26.3.jar。
 // 用 AbstractArchiveTask 一次覆盖 jar、sourcesJar 等全部归档任务。
 tasks.withType(org.gradle.api.tasks.bundling.AbstractArchiveTask).configureEach {
