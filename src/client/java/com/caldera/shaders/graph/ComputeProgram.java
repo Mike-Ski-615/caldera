@@ -165,10 +165,24 @@ final class ComputeProgram implements AutoCloseable {
       }
    }
 
+   /**
+    * compute 路径的帧 uniform 声明。
+    * <p>
+    * 与 {@link GraphFrame#declaration()} 的差别只有 layout 限定符：compute 用显式的
+    * {@code set=0,binding=0}，片元那条走游戏的反射绑定。**成员表两边同源**（{@link FrameLayout}），
+    * 所以这里不再是一份需要人工同步的文本。
+    * <p>
+    * 单独成一个方法是为了让 {@code FrameLayoutTest} 能直接断言它——原先那份手抄的字面量
+    * 内联在 {@link #source} 里，测试够不着，因此漂移了也没人会红。
+    */
+   static String frameUniformDeclaration() {
+      return "layout(std140,set=0,binding=0) uniform CalderaFrame {\n" + FrameLayout.block() + "};\n";
+   }
+
    static String source(PackGraph graph, PackGraph.Pass pass, String source) {
       String var10002 = String.valueOf(pass.localSize().get(0));
       StringBuilder declarations = new StringBuilder("\nlayout(local_size_x=" + var10002 + ",local_size_y=" + String.valueOf(pass.localSize().get(1)) + ",local_size_z=" + String.valueOf(pass.localSize().get(2)) + ") in;\n");
-      declarations.append("layout(std140,set=0,binding=0) uniform CalderaFrame {\n").append("mat4 Projection; mat4 View; mat4 InverseProjection; mat4 InverseView;\nmat4 PreviousProjection; mat4 PreviousView;\nvec4 CameraDeltaAndHistoryValid; vec4 TimeDeltaFrame; vec4 ViewSizeAndInverse;\nvec4 WorldTimeWeatherDimension; vec4 SunDirectionAndRainBrightness; vec4 MoonDirectionAndPhase;\nvec4 CameraPositionHighAndFogType; vec4 CameraPositionLowAndFarPlane;\nvec4 FogColorAndStart; vec4 FogDistances; vec4 SkyColorAndStarBrightness;\nvec4 CloudOffsetAndGameTime;\nmat4 InverseHandProjection; vec4 HandProjectionValid;\n      vec4 HeldLightPositionRadius; vec4 HeldLightColor;\n      mat4 HeldLightViewProjection[6];\n").append("};\n");
+      declarations.append(frameUniformDeclaration());
       int binding = 1;
 
       for(Map.Entry<String, String> entry : pass.reads().entrySet()) {

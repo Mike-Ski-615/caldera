@@ -55,6 +55,21 @@ class FrameLayoutTest {
 		assertEquals("layout(std140) uniform CalderaFrame {\n" + FrameLayout.block() + "};\n", GraphFrame.declaration());
 	}
 
+	/**
+	 * compute 那条路径也必须用同一份成员表。
+	 * <p>
+	 * 这里原先有一份**手抄的** 23 字段字面量，而上面那条测试只比对 {@code FrameLayout.block()} 与冻结文本
+	 * ——也就是说那份副本漂移了没有任何东西会红。现在它改成调 {@code FrameLayout.block()}，所以这个测试
+	 * 钉的是"它确实还在调"，而不是"两份文本碰巧一样"。
+	 * <p>
+	 * 唯一的差别是 compute 需要显式的 {@code set}/{@code binding}（片元那条走游戏的反射绑定）。
+	 */
+	@Test
+	void theComputeDeclarationUsesTheSameMembersAsTheFragmentOne() {
+		assertEquals("layout(std140,set=0,binding=0) uniform CalderaFrame {\n" + FrameLayout.block() + "};\n",
+				ComputeProgram.frameUniformDeclaration(), "compute 的帧 uniform 声明必须由 FrameLayout 生成，不能再抄一份");
+	}
+
 	@Test
 	void everyFieldKeepsTheOffsetTheUploadWritesTo() {
 		FrameLayout.Field[] fields = FrameLayout.Field.values();
