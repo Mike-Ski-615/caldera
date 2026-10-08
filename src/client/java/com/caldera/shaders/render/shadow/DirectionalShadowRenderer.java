@@ -37,7 +37,20 @@ import org.joml.Vector4f;
  */
 public final class DirectionalShadowRenderer implements DirectionalShadowPass.Device {
    private static final int CASCADE_UBO_BYTES = 144;
-   private static final int SHADOW_DATA_BYTES = 416;
+   /**
+    * {@code CalderaShadowData} 的字节数——**必须等于 GLSL 那个块的 std140 尺寸**。
+    * <p>
+    * 布局见 {@code native_shadows.glsl}：{@code mat4[4]}(256) + {@code vec4[4]}(64)
+    * + {@code vec4}(16) + {@code vec4}(16) = 352。
+    * <p>
+    * 它曾经是 416：末尾多写了一个 {@code mat4 InverseViewRotation}，而那个块从来没有声明过这个成员
+    * ——是从隔壁 {@code CalderaCascade}（那个块**确实**有它，见 {@code uploadCascade}）抄过来的。
+    * 那段尾巴写到显存里、也被绑给着色器，但 GLSL 永远读不到它（越出声明范围）。
+    * 反编译的 {@code VulkanRenderPass} 确认描述符 range 取自 slice 长度、只要求 ≥ 块尺寸，
+    * 所以它当时**没有**造成渲染错误——但那是一个说谎的常量，而"说 416 的块其实只有 352"
+    * 正是这个项目一贯要消灭的那种安静的错。
+    */
+   private static final int SHADOW_DATA_BYTES = 352;
    /**
     * "阴影开着"时用的档位。
     * <p>
@@ -340,8 +353,7 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
 
       Vector3fc light = this.schedule.lightDirection();
       putVec4(light.x(), light.y(), light.z(), 0.0F, this.shadowUpload);
-      putVec4(1.0F * this.schedule.celestialShadowFade(), 0.0F, 0.08F, filterSamples(this.activeQuality), this.shadowUpload);
-      this.schedule.inverseViewRotation().get(this.shadowUpload);
+      putVec4(1.0F * this.schedule.celestialShadowFade(), 0.0F, 0.08F, 0.0F, this.shadowUpload);
       this.shadowUpload.rewind();
       this.shadowDataSlice = encoder.transientMemory().uploadGpu(this.shadowUpload, (long)RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment(), 128);
    }
@@ -354,7 +366,15 @@ public final class DirectionalShadowRenderer implements DirectionalShadowPass.De
     * 原来的 switch 在质量为零时也答 {@code 1.0F}（它落进 {@code OFF} 分支），而这里会对
     * {@code OFF} 抛。理由是这条路径的前提——{@code uploadShadowData} 只在阴影关卡真的执行时被调用，
     * 也就是"质量大于零"；答一个"关着时的采样数"没有意义，安静地答错不如大声。
+    * <p>
+    * <b>它现在没有调用者，而且不该再被调用。</b>它曾把结果写进 {@code ShadowParams.w}，
+    * 但那个分量在 GLSL 里从来没有读者——真正的滤波档位是**编译期**宏
+    * {@code CALDERA_SHADOW_FILTER_TIER}（= {@code SHADOW_QUALITY}，见 {@code native_shadows.glsl}），
+    * 由 {@code directional_shadow.glsl} 的 {@code #if} 分支决定 1 次 / 4 次 / 5 次双线性采样。
+    * 也就是说这是一套**与宏不同分档**的第二套采样数（1/4/9/16 对 1..4），上传了也没人看。
+    * 保留它是因为"这几档各自采几次"仍然是一份可读的记录；标在这里，免得下一个人再把它接回去。
     */
+   @SuppressWarnings("unused")
    private static float filterSamples(ShaderQualityPreset quality) {
       return switch (quality) {
          case LOW -> 1.0F;
