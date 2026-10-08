@@ -1,6 +1,5 @@
 plugins {
 	id "net.fabricmc.fabric-loom" version "${loom_version}"
-	id "maven-publish"
 }
 
 version = project.mod_version
@@ -71,12 +70,4 @@ tasks.matching { it.name == "remapJar" }.configureEach {
 
 tasks.named("sourcesJar", Jar).configure {
 	archiveVersion = "${project.mod_version}-${project.minecraft_version}"
-}
-
-publishing {
-	publications {
-		create("mavenJava", MavenPublication) {
-			from components.java
-		}
-	}
 }
