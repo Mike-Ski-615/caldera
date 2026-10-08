@@ -83,6 +83,11 @@ final class NotInstalledPackRuntime implements PackRuntime {
    public void captureHandProjection(Matrix4fc projection) {
    }
 
+   /** 空操作：没有渲染器会消费这个值。 */
+   @Override
+   public void captureHeldItemWorldPosition(float x, float y, float z, boolean mainHand) {
+   }
+
    @Override
    public void captureWorldProjection(Matrix4fc projection) {
    }

@@ -292,6 +292,18 @@ final class SceneFrame {
       }
    }
 
+   /**
+    * 记下这一帧画出来的手持物品中心的世界坐标。
+    * <p>
+    * 门闸与 {@link #captureHandProjection} 相同：只在场景里且有渲染器时才有人消费。
+    * 第三人称手臂画在实体渲染阶段，那时场景还没关，所以 {@code sceneActive} 仍然成立。
+    */
+   void captureHeldItemWorldPosition(float x, float y, float z, boolean mainHand) {
+      if (this.sceneActive && this.renderer.present()) {
+         this.renderer.captureHeldItemWorldPosition(x, y, z, mainHand);
+      }
+   }
+
    void beginScene(CameraRenderState currentCamera, Matrix4fc currentView, LevelRenderState state, float partialTick) {
       if (!this.frameScope) {
          throw new IllegalStateException("Caldera beginScene() outside a frame scope: scope(true) must open the frame first");

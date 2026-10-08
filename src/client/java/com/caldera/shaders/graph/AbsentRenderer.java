@@ -103,6 +103,11 @@ final class AbsentRenderer implements ActiveRenderer {
    public void handProjection(Matrix4fc projection) {
    }
 
+   /** 空操作：没有渲染器会消费这个位置。 */
+   @Override
+   public void captureHeldItemWorldPosition(float x, float y, float z, boolean mainHand) {
+   }
+
    /** 空操作。 */
    @Override
    public void projection(Matrix4fc projection) {

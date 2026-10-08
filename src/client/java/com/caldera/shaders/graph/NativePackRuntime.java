@@ -106,6 +106,16 @@ public final class NativePackRuntime {
       current.captureHandProjection(projection);
    }
 
+   /**
+    * 记下这一帧画出来的手持物品**中心的世界坐标**，留给下一帧当光源位置。
+    * <p>
+    * 唯一的调用者是 {@code HeldItemTransformMixin}；它注入在第三人称物品被提交绘制那一刻，
+    * 所以这个值只在**实体渲染之后**有效，消费它的 {@code HeldLight.update} 在下一帧才读。
+    */
+   public static void captureHeldItemWorldPosition(float x, float y, float z, boolean mainHand) {
+      current.captureHeldItemWorldPosition(x, y, z, mainHand);
+   }
+
    public static void captureWorldProjection(Matrix4fc projection) {
       current.captureWorldProjection(projection);
    }

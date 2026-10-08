@@ -19,6 +19,12 @@ bin/
 # Fabric 开发环境运行目录
 run/
 
+# 内置光影包不进版本控制。
+# 它是**玩家自己做的内容**（视觉资源），不是这份代码的一部分：作者维护它、
+# 也可能随时整体换掉，所以它的历史归作者，不归这个仓库。
+# 打包时它必须已经放在原地 —— build.gradle 会原样把它打进 jar，缺了即构建失败。
+src/main/resources/caldera-bundled/Caldera-Realistic.zip
+
 # 日志与 JVM 转储
 # *.hprof 尤其重要：Loom 吃内存，OOM 时会吐出几 GB 的堆转储
 *.log

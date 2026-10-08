@@ -86,6 +86,9 @@ interface PackRuntime {
 
    void captureHandProjection(Matrix4fc projection);
 
+   /** 记下这一帧画出来的手持物品中心的世界坐标。未安装时是空操作。 */
+   void captureHeldItemWorldPosition(float x, float y, float z, boolean mainHand);
+
    void captureWorldProjection(Matrix4fc projection);
 
    void scope(boolean enabled);

@@ -107,6 +107,11 @@ final class GraphFrame {
       this.inverseHandProjection = projection != null && matrixReady(projection) ? (new Matrix4f(projection)).invert() : null;
    }
 
+   /** 转发手持物品的世界位置给 {@link HeldLight}——它是这个值的所有者与唯一消费者。 */
+   void captureHeldItemWorldPosition(float x, float y, float z, boolean mainHand) {
+      this.heldLight.captureItemWorldPosition(x, y, z, mainHand);
+   }
+
    Matrix4fc inverseHandProjection() {
       return this.inverseHandProjection;
    }
@@ -151,7 +156,7 @@ final class GraphFrame {
     */
    static void fillEnvironment(float[] environment, LevelRenderState state, ClientLevel level, float partialTick, int cloudTextureWidth, HeldLight heldLight, boolean heldLighting) {
       Arrays.fill(environment, 0.0F);
-      heldLight.update(level, partialTick, heldLighting);
+      heldLight.update(level, partialTick, heldLighting, state);
       if (level != null) {
          environment[env(FrameLayout.Field.WORLD_TIME_WEATHER_DIMENSION) + 0] = (float)Math.floorMod(level.getDefaultClockTime(), 24000L) + partialTick;
          environment[env(FrameLayout.Field.WORLD_TIME_WEATHER_DIMENSION) + 1] = level.getRainLevel(partialTick);

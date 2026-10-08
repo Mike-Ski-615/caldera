@@ -599,6 +599,11 @@ public final class GraphRenderer implements AutoCloseable, ActiveRenderer {
       this.frame.handProjection(projection);
    }
 
+   @Override
+   public void captureHeldItemWorldPosition(float x, float y, float z, boolean mainHand) {
+      this.frame.captureHeldItemWorldPosition(x, y, z, mainHand);
+   }
+
    public void projection(Matrix4fc projection) {
       this.frame.projection(projection);
    }

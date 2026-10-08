@@ -94,6 +94,9 @@ interface ActiveRenderer {
    /** 手表投影的逆矩阵；{@code null} 或退化矩阵都表示"没有"。 */
    void handProjection(Matrix4fc projection);
 
+   /** 记下这一帧画出来的手持物品中心的世界坐标。缺席侧是空操作。 */
+   void captureHeldItemWorldPosition(float x, float y, float z, boolean mainHand);
+
    /** 本帧的世界投影矩阵。 */
    void projection(Matrix4fc projection);
 

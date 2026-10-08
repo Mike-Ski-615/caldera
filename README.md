@@ -29,7 +29,7 @@ caldera-<version>.jar           模组本体
 caldera-<version>-sources.jar   源码包
 ```
 
-例如 `caldera-0.5.1.jar`。命名沿用 Gradle 默认规则（`archivesName` 取项目名，版本取 `version`），
+例如 `caldera-0.0.1.jar`。命名沿用 Gradle 默认规则（`archivesName` 取项目名，版本取 `version`），
 与官方 fabric-example-mod 模板一致，不带 Minecraft 版本后缀。
 
 **需要 JDK 25，并设置 `JAVA_HOME`**（指向 JDK 根目录，不是 `bin`）：
@@ -47,7 +47,7 @@ minecraft_version=26.3
 loader_version=0.19.5
 loom_version=1.18.2
 
-version=0.5.1
+version=0.0.1
 group=com.caldera
 
 fabric_api_version=0.161.0+26.3

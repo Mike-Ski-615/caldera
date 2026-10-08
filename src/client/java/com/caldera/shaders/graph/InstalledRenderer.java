@@ -77,6 +77,11 @@ final class InstalledRenderer implements ActiveRenderer {
    }
 
    @Override
+   public void captureHeldItemWorldPosition(float x, float y, float z, boolean mainHand) {
+      this.renderer.captureHeldItemWorldPosition(x, y, z, mainHand);
+   }
+
+   @Override
    public void projection(Matrix4fc projection) {
       this.renderer.projection(projection);
    }

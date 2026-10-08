@@ -3,7 +3,7 @@
 	"id": "caldera",
 	"version": "${version}",
 	"name": "Caldera",
-	"description": "Native shader support for Minecraft's Vulkan renderer, powered by Sodium.",
+	"description": "由 Sodium 驱动的 Minecraft Vulkan 渲染器原生着色器支持.",
 	"icon": "assets/caldera/icon.png",
 	"authors": [
 		"Mike_Ski"

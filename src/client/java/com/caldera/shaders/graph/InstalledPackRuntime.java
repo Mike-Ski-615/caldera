@@ -186,6 +186,11 @@ final class InstalledPackRuntime implements PackRuntime {
    }
 
    @Override
+   public void captureHeldItemWorldPosition(float x, float y, float z, boolean mainHand) {
+      this.frame.captureHeldItemWorldPosition(x, y, z, mainHand);
+   }
+
+   @Override
    public void captureWorldProjection(Matrix4fc projection) {
       this.frame.captureWorldProjection(projection);
    }
