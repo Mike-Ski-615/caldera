@@ -2,7 +2,8 @@
 
 这份文件给"读这个仓库的人与 agent"用：同一个概念只能有一个名字，名字要指向一个真实的模块。
 新增模块时若它命名了一个这里没有的概念，把词补进来。决策与取舍记在提交信息里，不在本文件；
-工作区里没有 `docs/adr/`（历史 ADR 的落点见文末「已移除」）。
+工作区里没有 `docs/adr/`（历史 ADR 的落点见文末「已移除」）。**测试在 `src/test` 里**，
+计数与运行方式见文末同一条。
 
 ## 光影包与包图
 
@@ -43,7 +44,22 @@
   画进原生 pass。
 - **帧 uniform（CalderaFrame）** — 每帧一次、全包共用的那段 uniform 块。布局（23 个字段、1072 字节）
   只在 `FrameLayout` 里**声明一次**：GLSL 成员、字节偏移与 `environment[]` 的 36 个槽位都由它生成或
-  派生；写入侧不再写魔数。它与 GLSL 的一致性只靠 `FrameLayout` 这一处声明维持（无自动化校验）。
+  派生；写入侧不再写魔数。**两个消费方都取自这一处**：片元侧 `GraphFrame.declaration()`，
+  compute 侧 `ComputeProgram.frameUniformDeclaration()`（差别只有 layout 限定符里的 `set`/`binding`）。
+  原先 compute 那边手抄过一份 23 字段的字面量，已消除——见下条。
+- **CPU↔GPU 布局契约** — Java 写进缓冲区的字节序必须与 GLSL 声明的成员表对得上。这类错**没有运行时
+  症状**（着色器安静地读到隔壁字段），所以每个这样的配对都应当有一处声明与一个测试：
+  - `CalderaFrame`（1072 字节）→ `FrameLayout` 单一声明，`FrameLayoutTest` 钉住冻结文本、23 个偏移、
+    总长与「compute 与片元同源」；`GraphFrame` 侧另有写入序的测试。
+  - `CalderaShadowData`（**352** 字节）与 `CalderaCascade`（144 字节）→ 两侧都是手写，
+    `ShadowUboLayoutTest` 钉住 GLSL 声明的 std140 尺寸与成员表。Java 常量
+    （`SHADOW_DATA_BYTES`、`CASCADE_UBO_BYTES`）是私有的且构造渲染器需要真设备，所以测试够不着那一侧
+    ——**两侧的相等靠 `native_shadows.glsl` 里那句注释与这个测试互相指引**。
+  - 新增一个进 uniform/缓冲区的字段时，**先确认它有 GLSL 读者**：曾经有两处写了没人读
+    （`ShadowParams.w` 的 `filterSamples`、以及 `CalderaShadowData` 末尾多抄的一个 `mat4`），
+    两者都不会有任何症状，只能靠人工核对发现。
+  - 已知**尚未**被任何东西校验的：`CalderaStorage_<name>` 的 std430 跨距（GLSL 侧是
+    `uint data[]`、跨距隐含为 4，Java 侧只有一个不透明的字节数）。
 - **可重载资源（reloadable resources）** — 跨**资源重载**存活的进程级 GPU 状态（管线缓存、
   阴影 RenderTarget、Sodium 的 render-list 计划缓存）。**所有者（owner）** 是持有它们的那一个模块；
   每个所有者在自己的定义处把释放动作登记进 `ReloadableResources`，释放只发生在 `closeAll()`。
@@ -66,12 +82,23 @@
   它嵌在方向光那一关里跑，用的是同一个阴影关卡作用域。
 - **地形修订号（terrain revision）** — 地形几何变过没有的进程级计数，由 `CascadePlanner` 持有；
   级联缓存靠它判断还能不能复用。
+- **阴影投射者的覆盖范围** — 两类的范围**故意不同**，看起来像不一致但都是有意的：
+  - **地形**覆盖到最远级联（也就是 `SHADOW_DISTANCE` 的远端）。
+  - **实体**只覆盖**第 0 个级联**。这一点由三处共同决定，改一处必须同时改其余：
+    `CascadePlanner` 的 `i < 1`、`CascadeSchedule.entityCascadeEnd` 的 `min(1, count)` 守卫、
+    GLSL 侧的 `cascade == 0 ? … : 1.0`。而**资源侧也是同一个约束**：
+    `CascadePlanner.entityTargetSize` 的守卫是 `cascade < 1`，实体图只为级联 0 分配。
+  - **物品（掉落物、展示框内容）不进阴影图**。`DirectionalShadowPipelines.entityDepthPipeline` 是一张
+    显式白名单，只认实体与盔甲那几族管线；物品走自己的 `ITEM_*` 管线（不同顶点格式），映射为 `null`
+    之后绘制会在 `RenderTypeMixin` 那一步被取消。所以
+    `DirectionalShadowSubmitFilter.submitItem` 的空实现是**结果而非原因**——只补那行转发不会有任何
+    可见变化，真要支持得先为物品管线建一套深度管线（独立功能）。
 
 ## 边界与验证
 
 - **ShaderHost 端口** — 光影运行时需要游戏提供的全部能力，用普通类型表达；生产实现是
-  `MinecraftShaderHost`。测试实现在 2026-10 的一次清理里连同 `docs/adr/0003` 一起从工作区移除
-  （两者都在 git 历史里，见文末「已移除」）。
+  `MinecraftShaderHost`。测试实现是 `src/test` 里的 `FakeShaderHost`（**已恢复**，见文末「已移除」）；
+  `docs/adr/0003` 仍只在 git 历史里。
 - **PreparedRenderer 句柄** — 一份已准备好、可以被激活或被丢弃的渲染器。**永远不为 null**。
 - **装配根（composition root）** — `CompositionRoot.install(host)`：把同一份 `ShaderHost` 装进三个
   需要它的模块（`ShaderRuntime`、`NativePackRuntime`、`DirectionalShadowRenderer`），客户端入口只调
@@ -97,19 +124,22 @@
 
 ## 已移除
 
-2026-10 的一次"让项目变干净"清理移除了三样东西。它们都不在工作区里了；**前两样在 git 历史里**
-（本文件所在提交的前一个提交 `27f964c`），第三样本来就只在工作区、从未进过版本控制。
+2026-10 的一次"让项目变干净"清理移除了三样东西。**`docs/adr/` 与 `run/`、`logs/` 仍然不在工作区**；
+`src/test/` 后来被恢复了，见下。
 
 - **`docs/adr/`** — 目录里只有 `0003-shader-lifecycle-behind-a-host-port.md`：光影生命周期坐在
   `ShaderHost` 端口之后、渲染器坐在**永不为 null** 的 `PreparedRenderer` 句柄之后；理由是不能用
   GPU 观察那些状态迁移，而 `resourceReloading` 门闸有二十个 mixin 调用点，顺序错一帧只会静默损坏。
   该文件自己记着一个**未验证**的缺口：重构后的构建在 Vulkan 上跑过全流程无告警，但**没跟参考构建
   做过并排截图对比**，"画出同样的画面"至今未验证；失败模式是静默的（能加载、能跑、什么都不画）。
-  ADR-0002 在该文件里被引用，但它从未在本仓库中。
-- **`src/test/`** — 31 个文件：单元测试（清单解析与校验、pass 调度、显存预算、路径安全、`#include`
-  展开、光影包扫描、帧 uniform、阴影级联与关卡作用域）加两个测试替身 `FakeShaderHost`、
-  `RecordingRenderPass`，以及夹具 `src/test/resources/caldera-realistic.json`。
-  `build.gradle` 里的 JUnit 依赖、`sourceSets.test` 接线与 `tasks.withType(Test)` 配置同时删除。
+  ADR-0002 在该文件里被引用，但它从未在本仓库中。取回：`git show 20a57e0:docs/adr/0003-…`。
+- **`src/test/`** — **已恢复**（31 个文件，从 `20a57e0` 取回；`build.gradle` 的 JUnit 依赖、
+  `sourceSets.test` 接线与 `tasks.withType(Test)` 一并恢复）。恢复的理由与那套截图门禁不同：
+  测试是纯 JVM、无 GPU、CI 可跑的，而本项目缺陷的典型失败模式恰恰是"不报错、只画错"——没有回归网
+  就只能靠肉眼，而肉眼对比已被下面那条方法论证明不可靠。**现有 341 条**（恢复的 336 条 + 新增的
+  `ShadowUboLayoutTest` 4 条与帧 uniform 同源 1 条）。
+  运行：设置 `JAVA_HOME` 到 JDK 25 后 `./gradlew test`（本机可用 IntelliJ 自带的 JBR 25）。
+  测试替身仍是 `FakeShaderHost`、`RecordingRenderPass`，夹具是 `src/test/resources/caldera-realistic.json`。
 - **`run/` 与 `logs/`** — 开发期运行目录（启动器缓存、配置、日志、崩溃报告）与项目根日志。
   从 `run/saves/CalderaQA` 这个名字可以看出它曾是上面那套截图门禁的一次性世界。
   两者都被 `.gitignore` 忽略，删除前共 49.1 MB。
