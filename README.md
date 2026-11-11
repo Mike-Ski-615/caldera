@@ -9,6 +9,32 @@
 
 ---
 
+## Demo
+
+目前没有在线部署，也没有已发布的实机录屏。可复现的演示路径见 [docs/DEMO.md](docs/DEMO.md)：安装 JDK 25、Fabric、Fabric API、Sodium，将客户端切到 Vulkan 后端，再执行 `./gradlew runClient`。
+
+演示建议按以下顺序录制一段 20–30 秒的原始片段：白天看级联阴影，转向水面看反射，抬头看移动的体积云，切到日落或夜晚看天空与大气变化，最后打开光影设置界面展示 28 项可调参数。
+
+> 内置视觉包不提交到仓库。运行开发客户端或打包含内置包的 JAR 之前，需要把 `Caldera-Realistic.zip` 放到 `src/main/resources/caldera-bundled/`。
+
+## 工程证据
+
+| 可验证内容 | 位置 | 说明 |
+|---|---|---|
+| 自动化构建 | [.github/workflows/build.yml](.github/workflows/build.yml) | 每次 push 和 pull request 在 JDK 25 上执行 `./gradlew build` |
+| 着色器包解析与运行时校验 | [src/client/java/com/caldera/shaders/pack](src/client/java/com/caldera/shaders/pack) | 清单格式、依赖、资源格式与显存预算 |
+| 渲染图与帧协议 | [src/client/java/com/caldera/shaders/graph](src/client/java/com/caldera/shaders/graph) | pass 依赖、渲染器装配与帧级协议 |
+| 阴影级联与手持光源 | [src/client/java/com/caldera/shaders/render/shadow](src/client/java/com/caldera/shaders/render/shadow) | 阴影覆盖与光源接入 |
+| 原版渲染接缝 | [src/client/java/com/caldera/shaders/mixin](src/client/java/com/caldera/shaders/mixin) | 与原版渲染目标、天空、雾和水的连接点 |
+| 单元测试 | [src/test](src/test) | CI 构建阶段执行 JUnit 测试套件 |
+| 构建产物 | [.github/workflows/build.yml](.github/workflows/build.yml) | `build/libs/` 作为 Actions artifact 上传 |
+
+CI 的边界需要明确说明：它验证编译、打包和 JUnit 测试，**不启动 Minecraft，不创建真实 GPU 管线，也不做截图对比**。画面正确性仍需要按 [docs/DEMO.md](docs/DEMO.md) 在 Vulkan 设备上人工验证。
+
+测试目录中的 `src/test/resources/caldera-bundled/Caldera-Realistic.zip` 只是最小 `caldera.json` 测试夹具，用来让依赖内置包路径的测试在没有完整视觉资源时也能运行；它不是完整的 Caldera Realistic 光影包。
+
+---
+
 ## 它和 Iris 有什么不同
 
 Caldera **不是** shaderpack ZIP 加载器。它自带一套清单格式（`caldera.json`），直接编译
